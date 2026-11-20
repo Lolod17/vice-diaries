@@ -1,13 +1,16 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { buildDossier, readAppTree } from './vendor/makefun-app.ts';
+// Hands the Vice Diaries studio in. Copies app/ and screenshots/ to the output
+// directory, then writes dossier.json from the vendored make.fun builder using
+// the scorer's own caps. Refuses to write inside this repository, and refuses a
+// screenshots directory that does not hold exactly 3 or 4 images.
 
-const root = realpathSync(dirname(fileURLToPath(import.meta.url)));
-const outputArgument = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-const output = resolve(outputArgument);
-const dryRun = process.argv.includes('--dry-run');
-const caps = {
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildDossier } from './vendor/makefun-app.ts';
+
+const repo = fileURLToPath(new URL('.', import.meta.url));
+
+const CAPS = {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   app_max_files: 993,
@@ -15,78 +18,56 @@ const caps = {
   app_path_max_bytes: 1000,
 };
 
-function physicalTarget(path) {
-  let probe = path;
-  const missing = [];
-  while (!existsSync(probe)) {
-    const parent = dirname(probe);
-    if (parent === probe) throw new Error(`Cannot resolve output path: ${path}`);
-    missing.unshift(basename(probe));
-    probe = parent;
-  }
-  return resolve(realpathSync(probe), ...missing);
+const IMAGE = /\.(png|jpe?g)$/i;
+
+function fail(message: string): never {
+  console.error(message);
+  process.exit(1);
 }
 
-function isWithin(parent, child) {
-  const path = relative(parent, child);
-  return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path));
+function insideRepo(dir: string): boolean {
+  const rel = relative(repo, dir);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
-function readScreenshotNames() {
-  const folder = resolve(root, 'screenshots');
-  let status;
-  try { status = lstatSync(folder); }
-  catch { throw new Error('screenshots/ is required and must contain 3 or 4 PNG or JPEG files.'); }
-  if (!status.isDirectory()) throw new Error('screenshots/ must be a directory.');
-  const entries = readdirSync(folder, { withFileTypes: true }).filter(entry => !entry.name.startsWith('.'));
-  const names = entries.filter(entry => entry.isFile() && /\.(?:png|jpe?g)$/i.test(entry.name)).map(entry => entry.name);
-  if (entries.length !== names.length || names.length < 3 || names.length > 4) {
-    throw new Error(`screenshots/ must contain 3 or 4 image files; found ${names.length} image(s) and ${entries.length - names.length} other entr${entries.length - names.length === 1 ? 'y' : 'ies'}.`);
-  }
-  return names;
+function imageCount(dir: string): number {
+  const walk = (at: string): number => {
+    let n = 0;
+    for (const name of readdirSync(at)) {
+      if (name.startsWith('.')) continue;
+      const full = join(at, name);
+      const st = statSync(full);
+      if (st.isDirectory()) n += walk(full);
+      else if (IMAGE.test(name)) n += 1;
+    }
+    return n;
+  };
+  return walk(dir);
 }
 
-function dossierFor(directory) {
-  const bytes = buildDossier(directory, caps);
-  return { bytes, document: JSON.parse(new TextDecoder().decode(bytes)) };
+const dryRun = process.argv.includes('--dry-run');
+const out = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
+
+if (insideRepo(out)) fail(`refusing to write inside the repository: ${out}`);
+
+const shots = join(repo, 'screenshots');
+const shotCount = existsSync(shots) ? imageCount(shots) : 0;
+if (shotCount !== 3 && shotCount !== 4) {
+  fail(`screenshots/ holds ${shotCount} images; the hand-in needs 3 or 4`);
 }
 
-function report(directory, dossier) {
-  const tree = readAppTree(resolve(directory, 'app'), caps);
-  const shots = readdirSync(resolve(directory, 'screenshots'), { withFileTypes: true })
-    .filter(entry => entry.isFile() && !entry.name.startsWith('.'));
-  const shotBytes = shots.reduce((sum, shot) => sum + lstatSync(resolve(directory, 'screenshots', shot.name)).size, 0);
-  console.log(`${dryRun ? 'Dry run' : 'Hand-in'} totals`);
-  console.log(`App: ${tree.count} files and directories, ${tree.totalBytes} bytes`);
-  console.log(`Screenshots: ${shots.length} images, ${shotBytes} bytes`);
-  console.log(`Dossier: ${dossier.bytes.length} bytes, ${dossier.document.text.length} text characters`);
-  console.log(`Output: ${directory}`);
+if (dryRun) {
+  console.log(`dry-run: would copy app/ and ${shotCount} screenshots to ${out}`);
+  process.exit(0);
 }
 
-function run() {
-  const target = physicalTarget(output);
-  if (isWithin(root, target)) throw new Error(`Output directory must be outside the repository: ${target}`);
-  readScreenshotNames();
+mkdirSync(out, { recursive: true });
+cpSync(join(repo, 'app'), join(out, 'app'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+cpSync(shots, join(out, 'screenshots'), { recursive: true });
 
-  if (dryRun) {
-    const dossier = dossierFor(root);
-    report(root, dossier);
-    return;
-  }
+const dossier = buildDossier(out, CAPS);
+writeFileSync(join(out, 'dossier.json'), dossier);
 
-  mkdirSync(output, { recursive: true });
-  cpSync(resolve(root, 'app'), resolve(output, 'app'), { recursive: true, force: true });
-  const targetShots = resolve(output, 'screenshots');
-  rmSync(targetShots, { recursive: true, force: true });
-  mkdirSync(targetShots, { recursive: true });
-  cpSync(resolve(root, 'screenshots'), targetShots, { recursive: true, force: true });
-  const dossier = dossierFor(output);
-  writeFileSync(resolve(output, 'dossier.json'), dossier.bytes);
-  report(output, dossier);
-}
-
-try { run(); }
-catch (error) {
-  console.error(`Hand-in stopped: ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-}
+const appFiles = readdirSync(join(out, 'app'), { recursive: true }).length;
+console.log(`handed in ${appFiles} app entries, ${shotCount} screenshots, dossier ${dossier.length} bytes -> ${out}${sep === '/' ? '' : dirname(out)}`);

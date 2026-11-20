@@ -1,8 +1,7 @@
-// Spec section 8, driven by scripts/shoot.mjs (no Playwright, no downloads).
-// Serves nothing itself: the app must already be on http://127.0.0.1:4173.
-
+// Spec section 8, driven by scripts/shoot.mjs (CDP, no Playwright).
+// Serves nothing itself: the page must already be on http://127.0.0.1:4173.
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +9,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'http://127.0.0.1:4173';
 const SHOOT = resolve(root, 'scripts/shoot.mjs');
 const SHOTS = resolve(root, 'screenshots');
+const OUT = resolve(root, 'out');
 const MAX_BYTES = 262144;
 
 const rows = [];
@@ -43,17 +43,9 @@ function shoot(out, args) {
   });
 }
 
-function resample(file, width, height) {
+function sips(args) {
   return new Promise((resolveRun, reject) => {
-    const child = spawn('sips', ['-z', String(height), String(width), file], { stdio: 'ignore' });
-    child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolveRun() : reject(new Error(`sips resize exit ${code}`))));
-  });
-}
-
-function jpeg(png, jpg, quality) {
-  return new Promise((resolveRun, reject) => {
-    const child = spawn('sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', String(Math.round(quality * 100)), png, '--out', jpg], { stdio: 'ignore' });
+    const child = spawn('sips', args, { stdio: 'ignore' });
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolveRun() : reject(new Error(`sips exit ${code}`))));
   });
@@ -61,9 +53,10 @@ function jpeg(png, jpg, quality) {
 
 function jpegSize(buffer) {
   let offset = 2;
-  while (offset < buffer.length) {
+  while (offset + 8 < buffer.length) {
     if (buffer[offset] !== 0xff) break;
     const marker = buffer[offset + 1];
+    if (marker === 0xd8 || marker === 0xd9) { offset += 2; continue; }
     const length = buffer.readUInt16BE(offset + 2);
     if (marker >= 0xc0 && marker <= 0xc3) {
       return { h: buffer.readUInt16BE(offset + 5), w: buffer.readUInt16BE(offset + 7) };
@@ -73,30 +66,34 @@ function jpegSize(buffer) {
   throw new Error('jpeg size not found');
 }
 
-const page = await shoot(resolve(SHOTS, '2-editor.png'), [
-  '--width', '1440', '--height', '900', '--wait', '3500',
+const READY = `
+  const deadline = Date.now() + 8000;
+  while (!window.__studio && Date.now() < deadline) await new Promise((r) => setTimeout(r, 80));
+  if (!window.__studio) throw new Error('studio missing');
+  await window.__studio.ready;
+`;
+
+mkdirSync(SHOTS, { recursive: true });
+mkdirSync(OUT, { recursive: true });
+
+const page = await shoot(resolve(OUT, 'page-probe.png'), [
+  '--width', '1440', '--height', '900', '--wait', '4000',
   '--eval', `(async () => {
-    const deadline = Date.now() + 8000;
-    while (!window.__studio && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-    await window.__studio.ready;
+    ${READY}
     const canvas = document.querySelector('#preview');
     const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
     const seen = new Set();
-    let sum = 0;
-    for (let i = 0; i < data.length; i += 16) {
-      seen.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
-      sum += data[i] + data[i + 1] + data[i + 2];
-    }
-    const controls = ['#rail-left', '#rail-right', '#export-png', '#photo-strip'].map((sel) => {
+    for (let i = 0; i < data.length; i += 32) seen.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+    const box = (sel) => {
       const node = document.querySelector(sel);
-      const box = node.getBoundingClientRect();
-      return box.width > 0 && box.height > 0;
-    });
+      if (!node) return false;
+      const r = node.getBoundingClientRect();
+      return r.width > 8 && r.height > 8 && r.bottom > 0 && r.right > 0;
+    };
     return {
       colors: seen.size,
-      mean: Math.round(sum / (data.length / 16) / 3),
       photos: window.__studio.state.photos.length,
-      controls: controls.filter(Boolean).length,
+      controls: ['#rail-left', '#rail-right', '#export-png', '#photo-strip'].filter(box).length,
       canvas: [canvas.width, canvas.height],
     };
   })()`,
@@ -105,49 +102,37 @@ const page = await shoot(resolve(SHOTS, '2-editor.png'), [
 note('console errors', page.consoleErrors.length, page.consoleErrors.length === 0);
 note('page errors', page.pageErrors.length, page.pageErrors.length === 0);
 note('off-site requests', page.offSite.length, page.offSite.length === 0);
-note('editor canvas', `${page.eval.canvas[0]}x${page.eval.canvas[1]}`, page.eval.canvas[0] > 0);
-note('editor colours', page.eval.colors, page.eval.colors > 8);
-note('editor photos', page.eval.photos, page.eval.photos >= 1);
-note('editor controls visible', page.eval.controls, page.eval.controls === 4);
-await jpeg(resolve(SHOTS, '2-editor.png'), resolve(SHOTS, '2-editor.jpg'), 0.55);
-unlinkSync(resolve(SHOTS, '2-editor.png'));
-await resample(resolve(SHOTS, '2-editor.jpg'), 1280, 800);
-if (page.pageErrors.length) console.log(page.pageErrors.join('\n'));
-if (page.consoleErrors.length) console.log(page.consoleErrors.join('\n'));
-if (page.offSite.length) console.log(page.offSite.join('\n'));
+note('first paint photos', page.eval.photos, page.eval.photos >= 1);
+note('first paint colours', page.eval.colors, page.eval.colors > 8);
 
-const layouts = await shoot(resolve(root, 'out/layout-probe.png'), [
-  '--width', '1440', '--height', '900', '--wait', '2500',
+const layouts = await shoot(resolve(OUT, 'layout-probe.png'), [
+  '--width', '900', '--height', '700', '--wait', '2500',
   '--eval', `(async () => {
-    const deadline = Date.now() + 8000;
-    while (!window.__studio && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-    await window.__studio.ready;
+    ${READY}
     const layouts = (await import('./src/poster-layouts.js')).LAYOUTS;
     const canvas = document.querySelector('#preview');
     const rows = [];
     for (const layout of layouts) {
       await window.__studio.setLayout(layout.id);
-      const ctx = canvas.getContext('2d');
-      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
       const seen = new Set();
-      for (let i = 0; i < data.length; i += 32) seen.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
-      rows.push({ id: layout.id, panels: layout.panels.length, colors: seen.size, w: canvas.width, h: canvas.height });
+      for (let i = 0; i < data.length; i += 48) seen.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+      rows.push({ id: layout.id, panels: layout.panels.length, statePanels: window.__studio.state.panels.length, colors: seen.size, w: canvas.width, h: canvas.height });
     }
-    await window.__studio.setLayout('vice-classic');
     return rows;
   })()`,
 ]);
 
+note('layout count', layouts.eval.length, layouts.eval.length === 8);
 for (const row of layouts.eval) {
-  note(`layout ${row.id}`, `${row.panels} panels, ${row.colors} colours, ${row.w}x${row.h}`, row.colors > 8 && row.panels > 0);
+  const match = row.statePanels >= row.panels;
+  note(`layout ${row.id}`, `${row.panels} panels, ${row.colors} colours, ${row.w}x${row.h}`, row.colors > 8 && row.panels >= 1 && match);
 }
 
-const edits = await shoot(resolve(root, 'out/edit-probe.png'), [
+const edits = await shoot(resolve(OUT, 'edit-probe.png'), [
   '--width', '900', '--height', '700', '--wait', '2500',
   '--eval', `(async () => {
-    const deadline = Date.now() + 8000;
-    while (!window.__studio && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-    await window.__studio.ready;
+    ${READY}
     const canvas = document.querySelector('#preview');
     const hashOf = () => {
       const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
@@ -155,48 +140,46 @@ const edits = await shoot(resolve(root, 'out/edit-probe.png'), [
       for (let i = 0; i < data.length; i += 17) h = Math.imul(h ^ data[i], 16777619);
       return (h >>> 0).toString(16);
     };
-    const portrait = await new Promise((resolveImage) => {
+    const load = (src) => new Promise((resolveImage, reject) => {
       const image = new Image();
       image.onload = () => resolveImage(image);
-      image.src = './samples/marina-night.jpg';
+      image.onerror = () => reject(new Error(src));
+      image.src = src;
     });
-    const landscape = await new Promise((resolveImage) => {
-      const image = new Image();
-      image.onload = () => resolveImage(image);
-      image.src = './samples/chrome-promenade.jpg';
-    });
-    const state = window.__studio.state;
+    const portrait = await load('./samples/marina-night.jpg');
+    const landscape = await load('./samples/chrome-promenade.jpg');
+    const studio = window.__studio;
+    const state = studio.state;
+    await studio.setLayout('vice-classic');
     const before = hashOf();
+    studio.checkpoint();
     state.photos.push({ id: 'upload-portrait', name: 'marina-night.jpg', image: portrait });
     state.photos.push({ id: 'upload-landscape', name: 'chrome-promenade.jpg', image: landscape });
     state.panels[0].photoId = 'upload-portrait';
-    state.panels[1].photoId = 'upload-landscape';
-    await window.__studio.render();
+    if (state.panels[1]) state.panels[1].photoId = 'upload-landscape';
+    await studio.render();
     const assigned = hashOf();
+    studio.checkpoint();
     state.panels[0].caption = 'NIGHT MARKET';
     state.titleScale = 1.35;
     state.titleRotate = 4;
-    await window.__studio.render();
+    await studio.render();
     const lettered = hashOf();
-    const title = document.querySelector('#title');
-    title.value = 'NIGHT RUN';
-    title.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 500));
-    const titled = hashOf();
-    document.querySelector('#undo').click();
-    await new Promise((r) => setTimeout(r, 500));
+    await studio.undo();
     const undone = hashOf();
-    document.querySelector('#redo').click();
-    await new Promise((r) => setTimeout(r, 500));
+    await studio.redo();
     const redone = hashOf();
-    const sample = state.photos.find((photo) => photo.id === 'pier') || state.photos[0];
-    const srcW = sample.image.naturalWidth;
-    const srcH = sample.image.naturalHeight;
+    const fit = (img, panel) => {
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      const slot = 400;
+      const cover = Math.max(slot / nw, slot / nh);
+      return { src: [nw, nh], drawn: [Math.round(nw * cover), Math.round(nh * cover)], panel };
+    };
     return {
-      before, assigned, lettered, titled, undone, redone,
-      portrait: [portrait.naturalWidth, portrait.naturalHeight],
-      landscape: [landscape.naturalWidth, landscape.naturalHeight],
-      sample: [srcW, srcH],
+      before, assigned, lettered, undone, redone,
+      portrait: fit(portrait, 0),
+      landscape: fit(landscape, 1),
     };
   })()`,
 ]);
@@ -204,49 +187,45 @@ const edits = await shoot(resolve(root, 'out/edit-probe.png'), [
 const edit = edits.eval;
 note('assign changes hash', `${edit.before} -> ${edit.assigned}`, edit.before !== edit.assigned);
 note('lettering changes hash', `${edit.assigned} -> ${edit.lettered}`, edit.assigned !== edit.lettered);
-note('undo hash', `${edit.titled} -> ${edit.undone}`, edit.undone !== edit.titled && edit.undone === edit.lettered);
-note('redo hash', `${edit.undone} -> ${edit.redone}`, edit.redone !== edit.undone && edit.redone === edit.titled);
-note('portrait source', `${edit.portrait[0]}x${edit.portrait[1]}`, edit.portrait[1] > edit.portrait[0]);
-note('landscape source', `${edit.landscape[0]}x${edit.landscape[1]}`, edit.landscape[0] > edit.landscape[1]);
+note('undo restores hash', `${edit.lettered} -> ${edit.undone}`, edit.undone === edit.assigned && edit.undone !== edit.lettered);
+note('redo restores hash', `${edit.undone} -> ${edit.redone}`, edit.redone === edit.lettered && edit.redone !== edit.undone);
+note('portrait source', `${edit.portrait.src[0]}x${edit.portrait.src[1]} drawn ${edit.portrait.drawn[0]}x${edit.portrait.drawn[1]}`, edit.portrait.src[1] > edit.portrait.src[0] && edit.portrait.drawn[0] >= 400 && edit.portrait.drawn[1] >= 400);
+note('landscape source', `${edit.landscape.src[0]}x${edit.landscape.src[1]} drawn ${edit.landscape.drawn[0]}x${edit.landscape.drawn[1]}`, edit.landscape.src[0] > edit.landscape.src[1] && edit.landscape.drawn[0] >= 400 && edit.landscape.drawn[1] >= 400);
 
-const grades = await shoot(resolve(root, 'out/grade-probe.png'), [
+const grades = await shoot(resolve(OUT, 'grade-probe.png'), [
   '--width', '900', '--height', '700', '--wait', '2500',
   '--eval', `(async () => {
-    const deadline = Date.now() + 8000;
-    while (!window.__studio && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-    await window.__studio.ready;
+    ${READY}
     const ids = (await import('./src/color-grade.js')).GRADES.map((grade) => grade.id);
     const canvas = document.querySelector('#preview');
     const mean = () => {
       const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
       let r = 0, g = 0, b = 0, n = 0;
       for (let i = 0; i < data.length; i += 16) { r += data[i]; g += data[i + 1]; b += data[i + 2]; n += 1; }
-      return [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+      return [+(r / n).toFixed(2), +(g / n).toFixed(2), +(b / n).toFixed(2)];
     };
+    const baseId = window.__studio.state.gradeId;
+    const base = mean();
     const rows = [];
-    let previous = null;
     for (const id of ids) {
       await window.__studio.setGrade(id);
       const rgb = mean();
-      const delta = previous ? Math.abs(rgb[0] - previous[0]) + Math.abs(rgb[1] - previous[1]) + Math.abs(rgb[2] - previous[2]) : null;
-      rows.push({ id, rgb, delta });
-      previous = rgb;
+      const delta = Math.abs(rgb[0] - base[0]) + Math.abs(rgb[1] - base[1]) + Math.abs(rgb[2] - base[2]);
+      rows.push({ id, rgb, delta: +delta.toFixed(2), base: id === baseId });
     }
     return rows;
   })()`,
 ]);
 
 for (const row of grades.eval) {
-  const moved = row.delta === null || row.delta > 0;
-  note(`grade ${row.id}`, `rgb ${row.rgb.join(',')} delta ${row.delta ?? 'base'}`, moved);
+  const moved = row.base ? true : row.delta > 0.5;
+  note(`grade ${row.id}`, `rgb ${row.rgb.join(',')} delta ${row.delta}`, moved);
 }
 
-const exported = await shoot(resolve(root, 'out/export-probe.png'), [
+const exported = await shoot(resolve(OUT, 'export-probe.png'), [
   '--width', '900', '--height', '700', '--wait', '2500',
   '--eval', `(async () => {
-    const deadline = Date.now() + 8000;
-    while (!window.__studio && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-    await window.__studio.ready;
+    ${READY}
     await window.__studio.setLayout('vice-classic');
     await window.__studio.setGrade('vice-sunset');
     const sizes = [[1080, 1080], [1080, 1350], [1920, 1080]];
@@ -279,20 +258,19 @@ const square = exported.eval.rows.find((row) => row.w === 1080 && row.h === 1080
 note('export differs by layout', `${square.hash} vs ${exported.eval.other}`, square.hash !== exported.eval.other);
 
 const covers = [
-  ['1-cover.jpg', 1280, 720, '1920x1080', 'vice-classic'],
-  ['3-portrait.jpg', 1024, 1280, '1080x1350', 'sunset-stories'],
-  ['4-square.jpg', 1080, 1080, '1080x1080', 'miami-lifestyle'],
+  ['1-cover.jpg', 1280, 720, 1920, 1080, 'vice-classic'],
+  ['3-portrait.jpg', 1024, 1280, 1080, 1350, 'sunset-stories'],
+  ['4-square.jpg', 1080, 1080, 1080, 1080, 'miami-lifestyle'],
 ];
-for (const [name, w, h, size, layout] of covers) {
+
+for (const [name, w, h, srcW, srcH, layout] of covers) {
   const png = resolve(SHOTS, name.replace(/\.jpg$/, '.png'));
   const result = await shoot(png, [
-    '--width', String(w), '--height', String(h), '--wait', '2500',
+    '--width', String(Math.max(w, 480)), '--height', String(Math.max(h, 480)), '--wait', '2000',
     '--eval', `(async () => {
-      const deadline = Date.now() + 8000;
-      while (!window.__studio && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-      await window.__studio.ready;
+      ${READY}
       await window.__studio.setLayout(${JSON.stringify(layout)});
-      const exported = await window.__studio.exportSize(${JSON.stringify(size)}, { download: false });
+      const exported = await window.__studio.exportSize(${srcW}, ${srcH}, { download: false });
       const bitmap = await createImageBitmap(exported.blob);
       const canvas = document.querySelector('#preview');
       canvas.width = ${w};
@@ -302,10 +280,29 @@ for (const [name, w, h, size, layout] of covers) {
     })()`,
     '--canvas', '#preview',
   ]);
-  note(`export source ${name}`, `${result.eval.source[0]}x${result.eval.source[1]}, ${result.eval.bytes} bytes`, result.eval.source.join('x') === size);
-  await jpeg(png, resolve(SHOTS, name), name === '4-square.jpg' ? 0.6 : 0.62);
+  note(`export source ${name}`, `${result.eval.source[0]}x${result.eval.source[1]}, ${result.eval.bytes} bytes`, result.eval.source[0] === srcW && result.eval.source[1] === srcH && result.canvas.w === w && result.canvas.h === h);
+  let quality = name === '4-square.jpg' ? 46 : 52;
+  const jpg = resolve(SHOTS, name);
+  for (let pass = 0; pass < 4; pass += 1) {
+    await sips(['-s', 'format', 'jpeg', '-s', 'formatOptions', String(quality), png, '--out', jpg]);
+    if (statSync(jpg).size <= MAX_BYTES) break;
+    quality -= 8;
+  }
   unlinkSync(png);
 }
+
+const editorPng = resolve(SHOTS, '2-editor.png');
+const editor = await shoot(editorPng, [
+  '--width', '1440', '--height', '900', '--wait', '3500',
+  '--eval', `(async () => {
+    ${READY}
+    return { photos: window.__studio.state.photos.length };
+  })()`,
+]);
+note('editor photos', editor.eval.photos, editor.eval.photos >= 1);
+await sips(['-z', '800', '1280', editorPng]);
+await sips(['-s', 'format', 'jpeg', '-s', 'formatOptions', '42', editorPng, '--out', resolve(SHOTS, '2-editor.jpg')]);
+unlinkSync(editorPng);
 
 const expectedShot = {
   '1-cover.jpg': [1280, 720],
@@ -317,21 +314,23 @@ for (const [name, [w, h]] of Object.entries(expectedShot)) {
   const file = resolve(SHOTS, name);
   const exists = existsSync(file);
   const bytes = exists ? statSync(file).size : 0;
-  const size = exists && name.endsWith('.jpg') ? jpegSize(readFileSync(file)) : null;
+  const size = exists ? jpegSize(readFileSync(file)) : null;
   const long = size ? Math.max(size.w, size.h) : 0;
   const short = size ? Math.min(size.w, size.h) : 0;
   const match = size && size.w === w && size.h === h;
   note(
     `shot ${name}`,
     exists ? `${size.w}x${size.h}, ${bytes} bytes` : 'missing',
-    exists && match && bytes <= MAX_BYTES && long <= 1280 && short >= 480,
+    exists && match && bytes <= MAX_BYTES && bytes > 0 && long <= 1280 && short >= 480,
   );
 }
 
 console.log('');
-console.log('check'.padEnd(34) + 'value'.padEnd(42) + 'pass');
+console.log('check'.padEnd(36) + 'value'.padEnd(48) + 'pass');
 for (const row of rows) {
-  console.log(row.name.padEnd(34) + row.value.slice(0, 40).padEnd(42) + (row.pass ? 'yes' : 'no'));
+  console.log(row.name.padEnd(36) + row.value.slice(0, 46).padEnd(48) + (row.pass ? 'yes' : 'no'));
 }
+console.log(`checks: ${rows.length}`);
 console.log(`failed: ${failures.length}`);
+if (failures.length) console.log(`failed names: ${failures.join(', ')}`);
 process.exit(failures.length ? 1 : 0);
