@@ -1,40 +1,92 @@
-// A working gta6-cover-art-01 entry (Node 22, standard library only): the app is this directory's app/ folder, plain
-// static files a desktop browser loads offline (app/index.html and its ES modules, no library and no network
-// request), and the program hands it in. It copies app/ and screenshots/ from beside this file to /output and writes
-// /output/dossier.json, the summary the judge reads, with the vendored make.fun library. Only the plumbing, not the
-// cover art the bounty asks for: Cover Snap, a plain one-photo square cover with a sunset tint and a bold caption,
-// exported as a 1080 x 1080 PNG. Its two sample photos (app/samples/) were made for make.fun with an image model and
-// are free to use. Build your own GTA-style cover maker in its place, put your 3 or 4 PNG or JPEG screenshots in
-// screenshots/ (the first by name is the cover) and run it.
-//
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildDossier } from './vendor/makefun-app.ts';
+import { buildDossier, readAppTree } from './vendor/makefun-app.ts';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const root = realpathSync(dirname(fileURLToPath(import.meta.url)));
+const outputArgument = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const output = resolve(outputArgument);
+const dryRun = process.argv.includes('--dry-run');
+const caps = {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  app_max_files: 993,
+  app_max_bytes: 50331648,
+  app_path_max_bytes: 1000,
+};
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+function physicalTarget(path) {
+  let probe = path;
+  const missing = [];
+  while (!existsSync(probe)) {
+    const parent = dirname(probe);
+    if (parent === probe) throw new Error(`Cannot resolve output path: ${path}`);
+    missing.unshift(basename(probe));
+    probe = parent;
+  }
+  return resolve(realpathSync(probe), ...missing);
+}
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in app/ or 48 MiB of app
-// files, in all, or a path under app/ over 1000 bytes: app/ counts beside /output's own 1000-entry cap, its
-// screenshots/ and dossier.json).
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    app_max_files: 993,
-    app_max_bytes: 50331648,
-    app_path_max_bytes: 1000,
-  }),
-);
+function isWithin(parent, child) {
+  const path = relative(parent, child);
+  return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path));
+}
+
+function readScreenshotNames() {
+  const folder = resolve(root, 'screenshots');
+  let status;
+  try { status = lstatSync(folder); }
+  catch { throw new Error('screenshots/ is required and must contain 3 or 4 PNG or JPEG files.'); }
+  if (!status.isDirectory()) throw new Error('screenshots/ must be a directory.');
+  const entries = readdirSync(folder, { withFileTypes: true }).filter(entry => !entry.name.startsWith('.'));
+  const names = entries.filter(entry => entry.isFile() && /\.(?:png|jpe?g)$/i.test(entry.name)).map(entry => entry.name);
+  if (entries.length !== names.length || names.length < 3 || names.length > 4) {
+    throw new Error(`screenshots/ must contain 3 or 4 image files; found ${names.length} image(s) and ${entries.length - names.length} other entr${entries.length - names.length === 1 ? 'y' : 'ies'}.`);
+  }
+  return names;
+}
+
+function dossierFor(directory) {
+  const bytes = buildDossier(directory, caps);
+  return { bytes, document: JSON.parse(new TextDecoder().decode(bytes)) };
+}
+
+function report(directory, dossier) {
+  const tree = readAppTree(resolve(directory, 'app'), caps);
+  const shots = readdirSync(resolve(directory, 'screenshots'), { withFileTypes: true })
+    .filter(entry => entry.isFile() && !entry.name.startsWith('.'));
+  const shotBytes = shots.reduce((sum, shot) => sum + lstatSync(resolve(directory, 'screenshots', shot.name)).size, 0);
+  console.log(`${dryRun ? 'Dry run' : 'Hand-in'} totals`);
+  console.log(`App: ${tree.count} files and directories, ${tree.totalBytes} bytes`);
+  console.log(`Screenshots: ${shots.length} images, ${shotBytes} bytes`);
+  console.log(`Dossier: ${dossier.bytes.length} bytes, ${dossier.document.text.length} text characters`);
+  console.log(`Output: ${directory}`);
+}
+
+function run() {
+  const target = physicalTarget(output);
+  if (isWithin(root, target)) throw new Error(`Output directory must be outside the repository: ${target}`);
+  readScreenshotNames();
+
+  if (dryRun) {
+    const dossier = dossierFor(root);
+    report(root, dossier);
+    return;
+  }
+
+  mkdirSync(output, { recursive: true });
+  cpSync(resolve(root, 'app'), resolve(output, 'app'), { recursive: true, force: true });
+  const targetShots = resolve(output, 'screenshots');
+  rmSync(targetShots, { recursive: true, force: true });
+  mkdirSync(targetShots, { recursive: true });
+  cpSync(resolve(root, 'screenshots'), targetShots, { recursive: true, force: true });
+  const dossier = dossierFor(output);
+  writeFileSync(resolve(output, 'dossier.json'), dossier.bytes);
+  report(output, dossier);
+}
+
+try { run(); }
+catch (error) {
+  console.error(`Hand-in stopped: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+}

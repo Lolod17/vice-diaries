@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vice Diaries · Cover Studio</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">V</span><h1>Vice Diaries</h1></div>
+    <span class="eyebrow">Cover Studio</span>
+  </header>
+  <div class="studio">
+    <aside id="rail-left" class="rail" aria-label="Photos and composition">
+      <section aria-labelledby="photos-heading">
+        <h2 id="photos-heading">Photos</h2>
+        <label class="photo-picker">
+          <input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+          <strong><span aria-hidden="true">＋</span> Add photos</strong>
+          <small>Drop on the stage or paste</small>
+        </label>
+        <div id="photo-strip" class="photo-strip" aria-label="Loaded photos"></div>
+      </section>
+      <section aria-labelledby="layout-heading">
+        <h2 id="layout-heading">Composition</h2>
+        <div id="layout-list" class="layout-list" role="group" aria-labelledby="layout-heading">
+          <button type="button" class="chip" data-layout="vice-classic" aria-pressed="true">Vice Classic <kbd>1</kbd></button>
+          <button type="button" class="chip" data-layout="sunset-stories" aria-pressed="false">Sunset Stories <kbd>2</kbd></button>
+          <button type="button" class="chip" data-layout="neon-nights" aria-pressed="false">Neon Nights <kbd>3</kbd></button>
+          <button type="button" class="chip" data-layout="miami-lifestyle" aria-pressed="false">Miami Lifestyle <kbd>4</kbd></button>
+          <button type="button" class="chip" data-layout="crime-drama" aria-pressed="false">Crime Drama <kbd>5</kbd></button>
+          <button type="button" class="chip" data-layout="cinematic-split" aria-pressed="false">Cinematic Split <kbd>6</kbd></button>
+          <button type="button" class="chip" data-layout="vertical-editorial" aria-pressed="false">Vertical Editorial <kbd>7</kbd></button>
+          <button type="button" class="chip" data-layout="multi-collage" aria-pressed="false">Multi-Character Collage <kbd>8</kbd></button>
+        </div>
+      </section>
+      <section aria-labelledby="size-heading">
+        <h2 id="size-heading">Format</h2>
+        <div id="size-row" class="chip-row" role="group" aria-labelledby="size-heading">
+          <button type="button" class="chip" data-size="1080x1080" aria-pressed="true">1:1</button>
+          <button type="button" class="chip" data-size="1080x1350" aria-pressed="false">4:5</button>
+          <button type="button" class="chip" data-size="1920x1080" aria-pressed="false">16:9</button>
+        </div>
+      </section>
+      <section id="section-panel" aria-labelledby="panel-heading" hidden>
+        <h2 id="panel-heading">Selected panel</h2>
+        <label>Zoom <input id="panel-zoom" type="range" min="1" max="3" step="0.01" value="1"></label>
+        <label>Focus X <input id="panel-focus-x" type="range" min="0" max="1" step="0.01" value="0.5"></label>
+        <label>Focus Y <input id="panel-focus-y" type="range" min="0" max="1" step="0.01" value="0.5"></label>
+        <label>Rotation <input id="panel-rotate" type="range" min="-15" max="15" step="0.1" value="0"></label>
+        <label>Caption <input id="panel-caption" type="text"></label>
+        <label>Timecode <input id="panel-timecode" type="text"></label>
+        <div class="chip-row">
+          <button id="panel-fill" type="button" class="chip">Fill</button>
+          <button id="panel-fit" type="button" class="chip">Fit</button>
+        </div>
+      </section>
+    </aside>
+
+    <main id="stage" aria-label="Live cover preview">
+      <div class="stage-toolbar" role="toolbar" aria-label="Preview controls">
+        <div class="chip-row">
+          <button id="undo" type="button" class="chip" disabled>Undo</button>
+          <button id="redo" type="button" class="chip" disabled>Redo</button>
+        </div>
+        <div class="chip-row">
+          <button id="zoom-out" type="button" class="chip" aria-label="Zoom out">−</button>
+          <output id="zoom-label" aria-live="polite">Fit</output>
+          <button id="zoom-in" type="button" class="chip" aria-label="Zoom in">+</button>
+        </div>
+        <button id="compare" type="button" class="chip" title="Hold to preview without the grade">Compare <kbd>Space</kbd></button>
+      </div>
+      <div class="stage-view">
+        <canvas id="preview" width="1080" height="1080" aria-label="Cover artwork preview">Cover artwork preview</canvas>
+      </div>
+      <ol id="hint" aria-label="Getting started">
+        <li>Add photos</li><li>Pick a composition</li><li>Export your cover</li>
+      </ol>
+    </main>
+
+    <aside id="rail-right" class="rail" aria-label="Lettering, grade and export">
+      <section id="section-lettering" aria-labelledby="lettering-heading">
+        <h2 id="lettering-heading">Lettering</h2>
+        <label>Title <input id="title" type="text" value="Vice Diaries" maxlength="64"></label>
+        <label>Subtitle <input id="subtitle" type="text" value="After the sun goes down" maxlength="100"></label>
+        <label>Tagline <input id="tagline" type="text" value="The night is ours" maxlength="100"></label>
+        <div class="field-row">
+          <label>Issue <input id="issue" type="text" value="01" maxlength="12"></label>
+          <label>Rating <input id="rating" type="text" value="M" maxlength="1"></label>
+        </div>
+        <label>Title scale <input id="title-scale" type="range" min="0.7" max="1.4" step="0.01" value="1"></label>
+        <label>Title rotation <input id="title-rotate" type="range" min="-6" max="6" step="0.1" value="0"></label>
+        <div class="field-row">
+          <label>Title alignment <select id="title-align"><option value="left">Left</option><option value="center" selected>Centre</option><option value="right">Right</option></select></label>
+          <label>Caption alignment <select id="caption-align"><option value="left" selected>Left</option><option value="center">Centre</option><option value="right">Right</option></select></label>
+        </div>
+        <label class="check"><input id="show-credits" type="checkbox" checked> Show credits</label>
+      </section>
+      <section id="section-grade" aria-labelledby="grade-heading">
+        <h2 id="grade-heading">Grade</h2>
+        <div id="grade-list" class="chip-row" role="group" aria-label="Grade presets">
+          <button type="button" class="chip" data-grade="vice-sunset" aria-pressed="true">Vice Sunset</button>
+          <button type="button" class="chip" data-grade="miami-heat" aria-pressed="false">Miami Heat</button>
+          <button type="button" class="chip" data-grade="neon-purple" aria-pressed="false">Neon Purple</button>
+          <button type="button" class="chip" data-grade="tropical-gold" aria-pressed="false">Tropical Gold</button>
+          <button type="button" class="chip" data-grade="midnight-vice" aria-pressed="false">Midnight Vice</button>
+          <button type="button" class="chip" data-grade="retro-film" aria-pressed="false">Retro Film</button>
+          <button type="button" class="chip" data-grade="warm-cinema" aria-pressed="false">Warm Cinema</button>
+          <button type="button" class="chip" data-grade="electric-night" aria-pressed="false">Electric Night</button>
+        </div>
+        <details>
+          <summary>Adjustments</summary>
+          <label>Brightness <input id="brightness" type="range" min="-100" max="100" value="0"></label>
+          <label>Contrast <input id="contrast" type="range" min="-100" max="100" value="0"></label>
+          <label>Saturation <input id="saturation" type="range" min="-100" max="100" value="0"></label>
+          <label>Temperature <input id="temperature" type="range" min="-100" max="100" value="0"></label>
+          <label>Highlights <input id="highlights" type="range" min="-100" max="100" value="0"></label>
+          <label>Shadows <input id="shadows" type="range" min="-100" max="100" value="0"></label>
+        </details>
+        <details>
+          <summary>Atmosphere</summary>
+          <label>Grain <input id="grain" type="range" min="0" max="100" value="25"></label>
+          <label>Vignette <input id="vignette" type="range" min="0" max="100" value="36"></label>
+          <label>Bloom <input id="bloom" type="range" min="0" max="100" value="18"></label>
+          <label>Light leak <input id="leak" type="range" min="0" max="100" value="15"></label>
+        </details>
+      </section>
+      <section id="section-export" aria-labelledby="export-heading">
+        <h2 id="export-heading">Export</h2>
+        <label>File name <input id="export-filename" type="text" placeholder="vice-diaries-vice-classic-1080x1080.png"></label>
+        <button id="export-png" type="button" class="primary">Export PNG <kbd>E</kbd></button>
+        <button id="export-all" type="button" class="chip">Export all three</button>
+        <div id="export-log" role="status" aria-live="polite"></div>
+      </section>
+    </aside>
+  </div>
+  <script type="module" src="./src/studio-ui.js"></script>
+</body>
+</html>
