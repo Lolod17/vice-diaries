@@ -290,6 +290,35 @@ function unifyPass(ctx, w, h, grade) {
   ctx.restore();
 }
 
+function inkFrame(ctx, w, h) {
+  const inset = Math.max(8, Math.round(Math.min(w, h) * 0.018));
+  const bleed = 2;
+  ctx.save();
+  ctx.strokeStyle = CREAM;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(inset, inset, w - inset * 2, h - inset * 2);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = bleed;
+  ctx.strokeRect(inset + 2, inset + 2, w - (inset + 2) * 2, h - (inset + 2) * 2);
+  ctx.restore();
+}
+
+function warmTitleLift(ctx, zone) {
+  if (!zone || zone.w < 4 || zone.h < 4) return;
+  const padX = zone.w * 0.04;
+  const padY = zone.h * 0.08;
+  const x = zone.x - padX;
+  const y = zone.y - padY;
+  const bw = zone.w + padX * 2;
+  const bh = zone.h + padY * 2;
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.fillStyle = AMBER;
+  ctx.globalAlpha = 0.03;
+  ctx.fillRect(x, y, bw, bh);
+  ctx.restore();
+}
+
 function layoutChrome(ctx, layout, state, w, h, scale) {
   const id = layout.id;
   if (id === 'vice-classic') {
@@ -475,7 +504,11 @@ export async function renderCover(ctx, state, opts = {}) {
     drawPanelCaption(ctx, spec, { ...rect, scale }, { scale, align: state.captionAlign || 'left' });
   });
 
-  if (!opts.skipLettering) letteringPass(ctx, layout, state, w, h, scale);
+  if (!opts.skipLettering) {
+    warmTitleLift(ctx, placedZone(layout, w, h, scale));
+    letteringPass(ctx, layout, state, w, h, scale);
+  }
+  inkFrame(ctx, w, h);
 
   if (layout.id !== 'miami-lifestyle') {
     const barW = px(132, scale);
