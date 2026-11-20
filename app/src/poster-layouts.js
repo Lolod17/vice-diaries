@@ -1,152 +1,210 @@
-// Eight poster compositions. Rects are normalized 0..1 with the origin at the
-// top-left of the design square. Panel order is the photo-slot order.
+// Eight poster compositions. Rects are normalized 0..1, origin top-left.
+// Geometry differs per layout: panel count, gutters, rotation and title placement.
 
 export const LAYOUTS = [
   {
     id: 'vice-classic',
     name: 'Vice Classic',
-    tag: '01',
-    defaultGrade: 'vice-sunset',
+    tag: 'hero + three',
+    designSpace: { w: 1080, h: 1080 },
     slots: 4,
-    background: { kind: 'gradient', from: '#D8306F', to: '#0A0910', angle: 180 },
-    titleZone: { x: 0, y: 0.86, w: 1, h: 0.14, size: 118 },
-    rules: { gap: 0.02, border: 3, overlap: 'band' },
+    defaultGrade: 'vice-sunset',
+    background: {
+      type: 'gradient',
+      from: '#4b2360',
+      to: '#0a0910',
+      angle: 160,
+    },
+    titleZone: { x: 0.04, y: 0.86, w: 0.92, align: 'left', size: 112, rotate: -1.5 },
+    rules: { gutter: 0.02, border: 3, overlap: 'timecode' },
     panels: [
-      { id: 'hero', x: 0, y: 0, w: 0.46, h: 1, kind: 'portrait', rotate: 0, border: 'paper' },
-      { id: 'stack-a', x: 0.48, y: 0, w: 0.52, h: 0.3, kind: 'stack', rotate: 0, border: 'paper' },
-      { id: 'stack-b', x: 0.48, y: 0.345, w: 0.52, h: 0.3, kind: 'stack', rotate: 0, border: 'paper' },
-      { id: 'stack-c', x: 0.48, y: 0.69, w: 0.52, h: 0.3, kind: 'stack', rotate: 0, border: 'paper' },
+      { slot: 0, kind: 'photo', x: 0, y: 0, w: 0.46, h: 1, rotate: 0, border: 3 },
+      { slot: 1, kind: 'photo', x: 0.48, y: 0, w: 0.52, h: 0.3, rotate: 0, border: 3 },
+      { slot: 2, kind: 'photo', x: 0.48, y: 0.345, w: 0.52, h: 0.3, rotate: 0, border: 3 },
+      { slot: 3, kind: 'photo', x: 0.48, y: 0.69, w: 0.52, h: 0.3, rotate: 0, border: 3 },
     ],
   },
   {
     id: 'sunset-stories',
     name: 'Sunset Stories',
-    tag: '02',
-    defaultGrade: 'miami-heat',
+    tag: 'three strips',
+    designSpace: { w: 1080, h: 1350 },
     slots: 4,
-    background: { kind: 'photo', dim: 0.4, scale: 1.08 },
-    titleZone: { x: 0.08, y: 0.74, w: 0.84, h: 0.2, size: 108 },
-    rules: { gap: 0.012, border: 8, overlap: 'strip' },
+    defaultGrade: 'miami-heat',
+    background: {
+      type: 'photo',
+      photoSlot: 0,
+      scale: 1.18,
+      opacity: 0.24,
+      overlay: 'rgba(10, 9, 16, 0.4)',
+    },
+    titleZone: { x: 0.08, y: 0.78, w: 0.84, align: 'center', size: 118, rotate: 0 },
+    rules: { gutter: 0.04, border: 3, overlap: 'tape', rule: 'cream' },
     panels: [
-      { id: 'bleed', x: 0, y: 0, w: 1, h: 1, kind: 'bleed', rotate: 0, border: 'none' },
-      { id: 'strip-a', x: 0.06, y: 0.06, w: 0.88, h: 0.3, kind: 'strip', rotate: -3, border: 'paper' },
-      { id: 'strip-b', x: 0.08, y: 0.38, w: 0.84, h: 0.3, kind: 'strip', rotate: 0, border: 'paper' },
-      { id: 'strip-c', x: 0.05, y: 0.68, w: 0.9, h: 0.3, kind: 'strip', rotate: 2.5, border: 'paper' },
+      { slot: 0, kind: 'photo', x: 0, y: 0, w: 1, h: 1, rotate: 0, border: 0 },
+      { slot: 1, kind: 'photo', x: 0.06, y: 0.06, w: 0.88, h: 0.3, rotate: -3, border: 3 },
+      { slot: 2, kind: 'photo', x: 0.08, y: 0.4, w: 0.84, h: 0.3, rotate: 0, border: 3 },
+      { slot: 3, kind: 'photo', x: 0.1, y: 0.74, w: 0.8, h: 0.22, rotate: 2.5, border: 3 },
     ],
   },
   {
     id: 'neon-nights',
     name: 'Neon Nights',
-    tag: '03',
-    defaultGrade: 'neon-purple',
+    tag: '2x2, one field',
+    designSpace: { w: 1080, h: 1080 },
     slots: 3,
-    background: { kind: 'vignette', color: '#14111C', edge: '#0A0910' },
-    titleZone: { x: 0.506, y: 0.506, w: 0.482, h: 0.482, size: 96 },
-    rules: { gap: 0.012, border: 3, overlap: 'field' },
+    defaultGrade: 'neon-purple',
+    background: {
+      type: 'gradient',
+      from: '#14111c',
+      to: '#0e9c96',
+      angle: 200,
+    },
+    titleZone: { x: 0.524, y: 0.06, w: 0.46, align: 'center', size: 132, rotate: -90 },
+    rules: { gutter: 0.012, border: 3, overlap: 'none' },
     panels: [
-      { id: 'quad-a', x: 0.012, y: 0.012, w: 0.482, h: 0.482, kind: 'grid', rotate: 0, border: 'paper' },
-      { id: 'quad-b', x: 0.506, y: 0.012, w: 0.482, h: 0.482, kind: 'grid', rotate: 0, border: 'paper' },
-      { id: 'quad-c', x: 0.012, y: 0.506, w: 0.482, h: 0.482, kind: 'grid', rotate: 0, border: 'paper' },
-      { id: 'title-field', x: 0.506, y: 0.506, w: 0.482, h: 0.482, kind: 'field', rotate: 0, border: 'none' },
+      { slot: 0, kind: 'photo', x: 0.012, y: 0.012, w: 0.482, h: 0.482, rotate: 0, border: 3 },
+      { slot: 1, kind: 'photo', x: 0.506, y: 0.012, w: 0.482, h: 0.482, rotate: 0, border: 3 },
+      { slot: 2, kind: 'field', x: 0.012, y: 0.506, w: 0.482, h: 0.482, rotate: 0, border: 0, fill: '#4b2360' },
+      { slot: 3, kind: 'photo', x: 0.506, y: 0.506, w: 0.482, h: 0.482, rotate: 0, border: 3 },
     ],
   },
   {
     id: 'miami-lifestyle',
     name: 'Miami Lifestyle',
-    tag: '04',
-    defaultGrade: 'tropical-gold',
+    tag: 'six strips',
+    designSpace: { w: 1080, h: 1080 },
     slots: 6,
-    background: { kind: 'field', color: '#F3E8D6' },
-    titleZone: { x: 0.06, y: 0.68, w: 0.88, h: 0.26, size: 104 },
-    rules: { gap: 0.01, border: 3, overlap: 'barcode' },
+    defaultGrade: 'tropical-gold',
+    background: {
+      type: 'field',
+      color: '#f3e8d6',
+    },
+    titleZone: { x: 0.04, y: 0.74, w: 0.92, align: 'left', size: 128, rotate: 0 },
+    rules: { gutter: 0.008, border: 3, overlap: 'barcode' },
     panels: [
-      { id: 'col-1', x: 0.012, y: 0.02, w: 0.155, h: 0.6, kind: 'column', rotate: 0, border: 'paper' },
-      { id: 'col-2', x: 0.177, y: 0.02, w: 0.155, h: 0.6, kind: 'column', rotate: 0, border: 'paper' },
-      { id: 'col-3', x: 0.342, y: 0.02, w: 0.155, h: 0.6, kind: 'column', rotate: 0, border: 'paper' },
-      { id: 'col-4', x: 0.507, y: 0.02, w: 0.155, h: 0.6, kind: 'column', rotate: 0, border: 'paper' },
-      { id: 'col-5', x: 0.672, y: 0.02, w: 0.155, h: 0.6, kind: 'column', rotate: 0, border: 'paper' },
-      { id: 'col-6', x: 0.837, y: 0.02, w: 0.151, h: 0.6, kind: 'column', rotate: 0, border: 'paper' },
+      { slot: 0, kind: 'photo', x: 0.01, y: 0, w: 0.155, h: 0.7, rotate: 0, border: 3 },
+      { slot: 1, kind: 'photo', x: 0.173, y: 0, w: 0.155, h: 0.62, rotate: 0, border: 3 },
+      { slot: 2, kind: 'photo', x: 0.336, y: 0, w: 0.155, h: 0.62, rotate: 0, border: 3 },
+      { slot: 3, kind: 'photo', x: 0.499, y: 0, w: 0.155, h: 0.62, rotate: 0, border: 3 },
+      { slot: 4, kind: 'photo', x: 0.662, y: 0, w: 0.155, h: 0.62, rotate: 0, border: 3 },
+      { slot: 5, kind: 'photo', x: 0.825, y: 0, w: 0.155, h: 0.7, rotate: 0, border: 3 },
     ],
   },
   {
     id: 'crime-drama',
     name: 'Crime Drama',
-    tag: '05',
-    defaultGrade: 'midnight-vice',
+    tag: 'diagonal pair',
+    designSpace: { w: 1080, h: 1080 },
     slots: 2,
-    background: { kind: 'gradient', from: '#14111C', to: '#0A0910', angle: 160 },
-    titleZone: { x: 0.42, y: 0.34, w: 0.5, h: 0.28, size: 126 },
-    rules: { gap: 0, border: 3, overlap: 'seam' },
+    defaultGrade: 'midnight-vice',
+    background: {
+      type: 'gradient',
+      from: '#0a0910',
+      to: '#4b2360',
+      angle: 225,
+    },
+    titleZone: { x: 0.42, y: 0.38, w: 0.5, align: 'left', size: 120, rotate: -6 },
+    rules: { gutter: 0, border: 3, overlap: 'seam', grain: 0.55 },
     panels: [
-      { id: 'cut', x: 0, y: 0, w: 0.68, h: 1, kind: 'diagonal', rotate: 0, border: 'paper' },
-      { id: 'side', x: 0.66, y: 0.04, w: 0.32, h: 0.92, kind: 'lean', rotate: 1.5, border: 'paper' },
+      { slot: 0, kind: 'photo', x: 0, y: 0, w: 0.74, h: 1, rotate: 0, border: 0, clip: 'diagonal' },
+      { slot: 1, kind: 'photo', x: 0.62, y: 0.08, w: 0.36, h: 0.84, rotate: 1.5, border: 3 },
     ],
   },
   {
     id: 'cinematic-split',
     name: 'Cinematic Split',
-    tag: '06',
-    defaultGrade: 'retro-film',
+    tag: '55/45 + inserts',
+    designSpace: { w: 1920, h: 1080 },
     slots: 4,
-    background: { kind: 'gradient', from: '#2B6E9C', to: '#0A0910', angle: 200 },
-    titleZone: { x: 0.03, y: 0.62, w: 0.49, h: 0.3, size: 112 },
-    rules: { gap: 0.006, border: 3, overlap: 'scrim' },
+    defaultGrade: 'retro-film',
+    background: {
+      type: 'gradient',
+      from: '#14111c',
+      to: '#2b6e9c',
+      angle: 180,
+    },
+    titleZone: { x: 0.04, y: 0.34, w: 0.48, align: 'left', size: 128, rotate: 0 },
+    rules: { gutter: 0.016, border: 3, overlap: 'scrim', seam: 6 },
     panels: [
-      { id: 'left', x: 0, y: 0, w: 0.55, h: 1, kind: 'scrim', rotate: 0, border: 'none' },
-      { id: 'insert-a', x: 0.57, y: 0.02, w: 0.41, h: 0.3, kind: 'insert', rotate: 0, border: 'paper' },
-      { id: 'insert-b', x: 0.57, y: 0.35, w: 0.41, h: 0.3, kind: 'insert', rotate: 0, border: 'paper' },
-      { id: 'insert-c', x: 0.57, y: 0.68, w: 0.41, h: 0.3, kind: 'insert', rotate: 0, border: 'paper' },
+      { slot: 0, kind: 'photo', x: 0, y: 0, w: 0.55, h: 1, rotate: 0, border: 0, scrim: 0.4 },
+      { slot: 1, kind: 'photo', x: 0.58, y: 0.02, w: 0.4, h: 0.3, rotate: 0, border: 3 },
+      { slot: 2, kind: 'photo', x: 0.58, y: 0.35, w: 0.4, h: 0.3, rotate: 0, border: 3 },
+      { slot: 3, kind: 'photo', x: 0.58, y: 0.68, w: 0.4, h: 0.3, rotate: 0, border: 3 },
     ],
   },
   {
     id: 'vertical-editorial',
     name: 'Vertical Editorial',
-    tag: '07',
+    tag: 'inset portrait',
+    designSpace: { w: 1080, h: 1350 },
+    slots: 1,
     defaultGrade: 'warm-cinema',
-    slots: 3,
-    background: { kind: 'field', color: '#4B2360' },
-    titleZone: { x: 0.12, y: 0.74, w: 0.76, h: 0.2, size: 132 },
-    rules: { gap: 0.06, border: 3, overlap: 'tape' },
+    background: {
+      type: 'field',
+      color: '#f3e8d6',
+    },
+    titleZone: { x: 0.08, y: 0.82, w: 0.84, align: 'center', size: 124, rotate: 0 },
+    rules: { gutter: 0, border: 3, overlap: 'tape' },
     panels: [
-      { id: 'inset', x: 0.12, y: 0.06, w: 0.76, h: 0.66, kind: 'inset', rotate: 0, border: 'paper' },
-      { id: 'rail-left', x: 0, y: 0.06, w: 0.1, h: 0.9, kind: 'rail', rotate: 0, border: 'none' },
-      { id: 'rail-right', x: 0.9, y: 0.06, w: 0.1, h: 0.9, kind: 'rail', rotate: 0, border: 'none' },
+      { slot: 0, kind: 'photo', x: 0.06, y: 0.07, w: 0.88, h: 0.72, rotate: 0, border: 3 },
     ],
   },
   {
     id: 'multi-collage',
     name: 'Multi-Character Collage',
-    tag: '08',
-    defaultGrade: 'electric-night',
+    tag: 'hero + five',
+    designSpace: { w: 1080, h: 1080 },
     slots: 6,
-    background: { kind: 'gradient', from: '#14111C', to: '#4B2360', angle: 135 },
-    titleZone: { x: 0.04, y: 0.8, w: 0.64, h: 0.16, size: 128 },
-    rules: { gap: 0, border: 4, overlap: 'stack' },
+    defaultGrade: 'electric-night',
+    background: {
+      type: 'gradient',
+      from: '#0a0910',
+      to: '#d8306f',
+      angle: 135,
+    },
+    titleZone: { x: 0.04, y: 0.8, w: 0.5, align: 'left', size: 100, rotate: 1.5 },
+    rules: { gutter: 0, border: 3, overlap: 'photos' },
     panels: [
-      { id: 'hero', x: 0, y: 0, w: 0.5, h: 0.62, kind: 'hero', rotate: 0, border: 'paper' },
-      { id: 'chip-a', x: 0.42, y: 0.02, w: 0.24, h: 0.24, kind: 'chip', rotate: 0, border: 'paper' },
-      { id: 'chip-b', x: 0.74, y: 0.1, w: 0.24, h: 0.22, kind: 'chip', rotate: -4, border: 'paper' },
-      { id: 'chip-c', x: 0.5, y: 0.34, w: 0.2, h: 0.2, kind: 'chip', rotate: 0, border: 'coral' },
-      { id: 'chip-d', x: 0.72, y: 0.4, w: 0.24, h: 0.22, kind: 'chip', rotate: 0, border: 'paper' },
-      { id: 'chip-e', x: 0.06, y: 0.66, w: 0.88, h: 0.3, kind: 'band', rotate: 0, border: 'paper' },
+      { slot: 0, kind: 'photo', x: 0, y: 0, w: 0.5, h: 0.62, rotate: 0, border: 3 },
+      { slot: 1, kind: 'photo', x: 0.42, y: 0.04, w: 0.24, h: 0.28, rotate: 0, border: 3 },
+      { slot: 2, kind: 'photo', x: 0.68, y: 0.02, w: 0.22, h: 0.24, rotate: -4, border: 3 },
+      { slot: 3, kind: 'photo', x: 0.46, y: 0.34, w: 0.2, h: 0.24, rotate: 0, border: 3 },
+      { slot: 4, kind: 'photo', x: 0.7, y: 0.3, w: 0.24, h: 0.26, rotate: 0, border: 3 },
+      { slot: 5, kind: 'photo', x: 0.54, y: 0.62, w: 0.22, h: 0.24, rotate: 0, border: 3 },
     ],
   },
 ];
 
+const byId = new Map(LAYOUTS.map((layout) => [layout.id, layout]));
+
 export function layoutById(id) {
-  return LAYOUTS.find((layout) => layout.id === id) || LAYOUTS[0];
+  return byId.get(id) || null;
 }
 
-// Fills `count` panels from `photos` in order, then wraps. Distinct photos are
-// used up before any photo is repeated, so two panels never share one while
-// another loaded photo is still unused.
-export function panelsForPhotoCount(layout, photos, count) {
-  const panels = layout.panels.slice(0, count ?? layout.panels.length);
-  const pool = (photos || []).filter(Boolean);
-  if (!pool.length) return panels.map((panel) => ({ ...panel, photo: null, photoIndex: -1 }));
-  return panels.map((panel, index) => ({
-    ...panel,
-    photo: pool[index % pool.length],
-    photoIndex: index % pool.length,
-  }));
+function photoPanels(layout) {
+  return layout.panels.filter((panel) => panel.kind !== 'field');
+}
+
+/**
+ * Map `count` loaded photos onto the layout's photo panels.
+ * Distinct photos fill distinct panels first; only then does a photo repeat.
+ * With zero photos every photo panel is a plate. Field panels stay fields.
+ */
+export function panelsForPhotoCount(layout, count) {
+  const n = Math.max(0, count | 0);
+  const photos = photoPanels(layout);
+  const assignment = new Map();
+  photos.forEach((panel, index) => {
+    if (n === 0) {
+      assignment.set(panel, { photoIndex: -1, kind: 'plate' });
+      return;
+    }
+    assignment.set(panel, { photoIndex: index % n, kind: 'photo' });
+  });
+  return layout.panels.map((panel) => {
+    if (panel.kind === 'field') return { ...panel, photoIndex: -1 };
+    const assigned = assignment.get(panel);
+    return { ...panel, photoIndex: assigned.photoIndex, kind: assigned.kind };
+  });
 }

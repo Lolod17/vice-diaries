@@ -1,310 +1,335 @@
-// Eight grade recipes. Each photo is filtered, then tinted; the atmosphere
-// layer (grain, vignette, bloom, leak, chromatic edge) is painted over the
-// finished poster and scaled by a 0..100 amount.
+// Eight grade recipes plus the atmosphere pass. Preview and export share these functions.
+
+const clampByte = (n) => Math.max(0, Math.min(255, n));
+const clamp01 = (n) => Math.max(0, Math.min(1, n));
 
 export const GRADES = [
   {
     id: 'vice-sunset',
     name: 'Vice Sunset',
     filter: { brightness: 1.06, contrast: 1.12, saturate: 1.28, sepia: 0.18, hueRotate: -8 },
-    shadow: { color: '#4B2360', alpha: 0.42 },
-    highlight: { color: '#FFB24A', alpha: 0.3 },
-    split: { shadow: '#D8306F', highlight: '#FFB24A', alpha: 0.16 },
-    atmosphere: { grain: 28, vignette: 34, bloom: 22, leak: 30 },
+    shadow: { color: '#4b2360', alpha: 0.42 },
+    highlight: { color: '#ffb24a', alpha: 0.34 },
+    split: { shadow: '#d8306f', highlight: '#ff5f52', alpha: 0.16 },
+    atmosphere: { grain: 32, vignette: 40, bloom: 22, leak: 28, edge: 18 },
   },
   {
     id: 'miami-heat',
     name: 'Miami Heat',
-    filter: { brightness: 1.1, contrast: 1.04, saturate: 1.4, sepia: 0.28, hueRotate: 6 },
-    shadow: { color: '#FF5F52', alpha: 0.34 },
-    highlight: { color: '#F8EBCB', alpha: 0.38 },
-    split: { shadow: '#FF5F52', highlight: '#FFB24A', alpha: 0.2 },
-    atmosphere: { grain: 18, vignette: 22, bloom: 30, leak: 40 },
+    filter: { brightness: 1.14, contrast: 1.08, saturate: 1.42, sepia: 0.28, hueRotate: 12 },
+    shadow: { color: '#ff5f52', alpha: 0.36 },
+    highlight: { color: '#f8ebcb', alpha: 0.4 },
+    split: { shadow: '#d8306f', highlight: '#ffb24a', alpha: 0.2 },
+    atmosphere: { grain: 18, vignette: 28, bloom: 36, leak: 48, edge: 12 },
   },
   {
     id: 'neon-purple',
     name: 'Neon Purple',
-    filter: { brightness: 0.96, contrast: 1.22, saturate: 1.34, sepia: 0.04, hueRotate: 268 },
-    shadow: { color: '#4B2360', alpha: 0.55 },
-    highlight: { color: '#0E9C96', alpha: 0.32 },
-    split: { shadow: '#0E9C96', highlight: '#D8306F', alpha: 0.22 },
-    atmosphere: { grain: 20, vignette: 48, bloom: 34, leak: 14 },
+    filter: { brightness: 0.96, contrast: 1.24, saturate: 1.36, sepia: 0.04, hueRotate: 268 },
+    shadow: { color: '#4b2360', alpha: 0.55 },
+    highlight: { color: '#0e9c96', alpha: 0.32 },
+    split: { shadow: '#d8306f', highlight: '#0e9c96', alpha: 0.22 },
+    atmosphere: { grain: 24, vignette: 62, bloom: 44, leak: 16, edge: 40 },
   },
   {
     id: 'tropical-gold',
     name: 'Tropical Gold',
-    filter: { brightness: 1.08, contrast: 1.06, saturate: 1.18, sepia: 0.34, hueRotate: 14 },
-    shadow: { color: '#2B6E9C', alpha: 0.28 },
-    highlight: { color: '#FFB24A', alpha: 0.46 },
-    split: { shadow: '#2B6E9C', highlight: '#FFB24A', alpha: 0.14 },
-    atmosphere: { grain: 16, vignette: 20, bloom: 26, leak: 24 },
+    filter: { brightness: 1.1, contrast: 1.04, saturate: 1.18, sepia: 0.42, hueRotate: 22 },
+    shadow: { color: '#2b6e9c', alpha: 0.28 },
+    highlight: { color: '#ffb24a', alpha: 0.48 },
+    split: { shadow: '#0e9c96', highlight: '#ffb24a', alpha: 0.14 },
+    atmosphere: { grain: 14, vignette: 22, bloom: 30, leak: 36, edge: 8 },
   },
   {
     id: 'midnight-vice',
     name: 'Midnight Vice',
-    filter: { brightness: 0.86, contrast: 1.3, saturate: 0.82, sepia: 0.1, hueRotate: 212 },
-    shadow: { color: '#0A0910', alpha: 0.62 },
-    highlight: { color: '#2B6E9C', alpha: 0.22 },
-    split: { shadow: '#0A0910', highlight: '#0E9C96', alpha: 0.18 },
-    atmosphere: { grain: 55, vignette: 52, bloom: 10, leak: 8 },
+    filter: { brightness: 0.82, contrast: 1.32, saturate: 0.86, sepia: 0.12, hueRotate: 196 },
+    shadow: { color: '#0a0910', alpha: 0.62 },
+    highlight: { color: '#2b6e9c', alpha: 0.22 },
+    split: { shadow: '#14111c', highlight: '#4b2360', alpha: 0.18 },
+    atmosphere: { grain: 55, vignette: 70, bloom: 10, leak: 8, edge: 14 },
   },
   {
     id: 'retro-film',
     name: 'Retro Film',
-    filter: { brightness: 1.02, contrast: 0.94, saturate: 0.78, sepia: 0.42, hueRotate: 18 },
-    shadow: { color: '#4B2360', alpha: 0.3 },
-    highlight: { color: '#F3E8D6', alpha: 0.34 },
-    split: { shadow: '#2B6E9C', highlight: '#FFB24A', alpha: 0.12 },
-    atmosphere: { grain: 42, vignette: 30, bloom: 14, leak: 20 },
+    filter: { brightness: 1.02, contrast: 0.92, saturate: 0.78, sepia: 0.55, hueRotate: 4 },
+    shadow: { color: '#4b2360', alpha: 0.3 },
+    highlight: { color: '#f3e8d6', alpha: 0.36 },
+    split: { shadow: '#2b6e9c', highlight: '#ffb24a', alpha: 0.12 },
+    atmosphere: { grain: 46, vignette: 34, bloom: 14, leak: 24, edge: 10 },
   },
   {
     id: 'warm-cinema',
     name: 'Warm Cinema',
-    filter: { brightness: 1.0, contrast: 1.16, saturate: 1.06, sepia: 0.22, hueRotate: -4 },
-    shadow: { color: '#4B2360', alpha: 0.36 },
-    highlight: { color: '#F8EBCB', alpha: 0.26 },
-    split: { shadow: '#D8306F', highlight: '#F3E8D6', alpha: 0.14 },
-    atmosphere: { grain: 24, vignette: 28, bloom: 18, leak: 12 },
+    filter: { brightness: 1.04, contrast: 1.16, saturate: 1.08, sepia: 0.22, hueRotate: -14 },
+    shadow: { color: '#d8306f', alpha: 0.24 },
+    highlight: { color: '#f8ebcb', alpha: 0.3 },
+    split: { shadow: '#ff5f52', highlight: '#ffb24a', alpha: 0.15 },
+    atmosphere: { grain: 20, vignette: 38, bloom: 18, leak: 12, edge: 6 },
   },
   {
     id: 'electric-night',
     name: 'Electric Night',
-    filter: { brightness: 1.04, contrast: 1.26, saturate: 1.46, sepia: 0.0, hueRotate: 196 },
-    shadow: { color: '#0E9C96', alpha: 0.4 },
-    highlight: { color: '#D8306F', alpha: 0.34 },
-    split: { shadow: '#0E9C96', highlight: '#FF5F52', alpha: 0.2 },
-    atmosphere: { grain: 22, vignette: 40, bloom: 36, leak: 18 },
+    filter: { brightness: 1.08, contrast: 1.28, saturate: 1.52, sepia: 0.06, hueRotate: 188 },
+    shadow: { color: '#0e9c96', alpha: 0.38 },
+    highlight: { color: '#ff5f52', alpha: 0.34 },
+    split: { shadow: '#0e9c96', highlight: '#d8306f', alpha: 0.22 },
+    atmosphere: { grain: 30, vignette: 48, bloom: 52, leak: 20, edge: 46 },
   },
 ];
 
-export function gradeById(id) {
-  return GRADES.find((grade) => grade.id === id) || GRADES[0];
+const gradeById = new Map(GRADES.map((grade) => [grade.id, grade]));
+
+export function gradeByName(id) {
+  return gradeById.get(id) || GRADES[0];
 }
 
-const NEUTRAL = { brightness: 0, contrast: 0, saturation: 0, temperature: 0, highlights: 0, shadows: 0 };
-
-function clamp(value, lo, hi) {
-  return Math.min(hi, Math.max(lo, value));
-}
-
-function unit(value) {
-  return clamp((value ?? 0) / 100, 0, 1);
-}
-
-function signed(value) {
-  return clamp((value ?? 0) / 100, -1, 1);
+function imageSize(img) {
+  return {
+    w: img.naturalWidth || img.videoWidth || img.width || 0,
+    h: img.naturalHeight || img.videoHeight || img.height || 0,
+  };
 }
 
 function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-function rgba(hex, alpha) {
-  const [r, g, b] = hexToRgb(hex);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+function filterString(filter, adjust) {
+  const bright = filter.brightness * (1 + (adjust.brightness || 0) / 100);
+  const contrast = filter.contrast * (1 + (adjust.contrast || 0) / 140);
+  const sat = filter.saturate * (1 + (adjust.saturation || 0) / 100);
+  return `brightness(${bright}) contrast(${contrast}) saturate(${sat}) sepia(${filter.sepia}) hue-rotate(${filter.hueRotate}deg)`;
 }
 
-function filterString(grade, adjust) {
-  const f = grade.filter;
-  const a = { ...NEUTRAL, ...adjust };
-  const brightness = clamp(f.brightness + signed(a.brightness) * 0.5, 0.4, 1.8);
-  const contrast = clamp(f.contrast + signed(a.contrast) * 0.5, 0.5, 1.8);
-  const saturate = clamp(f.saturate + signed(a.saturation) * 0.8, 0, 2.4);
-  return `brightness(${brightness}) contrast(${contrast}) saturate(${saturate}) sepia(${f.sepia}) hue-rotate(${f.hueRotate}deg)`;
-}
-
-// Luminance of one pixel, 0..255, used to mask the highlight and shadow lifts.
-function luma(data, i) {
-  return data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-}
-
-function paintGradient(ctx, w, h, stops, composite) {
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  for (const [at, color] of stops) grad.addColorStop(at, color);
-  ctx.save();
-  ctx.globalCompositeOperation = composite;
-  ctx.fillStyle = grad;
+function fillVertical(ctx, w, h, top, bottom) {
+  const paint = ctx.createLinearGradient(0, 0, 0, h);
+  paint.addColorStop(0, top);
+  paint.addColorStop(1, bottom);
+  ctx.fillStyle = paint;
   ctx.fillRect(0, 0, w, h);
-  ctx.restore();
 }
 
-// Screen-brightens the bright pixels and lifts the dark ones, by `amount` in -1..1.
-function paintLumaMask(ctx, w, h, amount, mode) {
-  if (!amount) return;
+function applySplit(ctx, w, h, split) {
+  const shadow = hexToRgb(split.shadow);
+  const highlight = hexToRgb(split.highlight);
   const image = ctx.getImageData(0, 0, w, h);
-  const { data } = image;
-  const lift = Math.abs(amount);
+  const data = image.data;
+  const mix = split.alpha;
   for (let i = 0; i < data.length; i += 4) {
-    const weight = mode === 'highlight' ? luma(data, i) / 255 : 1 - luma(data, i) / 255;
-    const gain = 1 + amount * weight * 0.6;
-    data[i] = clamp(data[i] * gain + (amount > 0 ? lift * weight * 28 : 0), 0, 255);
-    data[i + 1] = clamp(data[i + 1] * gain + (amount > 0 ? lift * weight * 24 : 0), 0, 255);
-    data[i + 2] = clamp(data[i + 2] * gain + (amount > 0 ? lift * weight * 18 : 0), 0, 255);
+    const lum = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+    const tone = lum < 0.5 ? shadow : highlight;
+    data[i] = clampByte(data[i] * (1 - mix) + tone.r * mix);
+    data[i + 1] = clampByte(data[i + 1] * (1 - mix) + tone.g * mix);
+    data[i + 2] = clampByte(data[i + 2] * (1 - mix) + tone.b * mix);
   }
   ctx.putImageData(image, 0, 0);
 }
 
-export function gradePhoto(img, grade, adjust = {}) {
-  const recipe = typeof grade === 'string' ? gradeById(grade) : grade;
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.filter = filterString(recipe, adjust);
-  ctx.drawImage(img, 0, 0, w, h);
-  ctx.filter = 'none';
+function screenChannel(base, strength) {
+  return base + (255 - base) * strength;
+}
 
-  paintGradient(ctx, w, h, [
-    [0, rgba(recipe.shadow.color, 0)],
-    [1, rgba(recipe.shadow.color, recipe.shadow.alpha)],
-  ], 'multiply');
-  paintGradient(ctx, w, h, [
-    [0, rgba(recipe.highlight.color, recipe.highlight.alpha)],
-    [1, rgba(recipe.highlight.color, 0)],
-  ], 'screen');
-  paintGradient(ctx, w, h, [
-    [0, rgba(recipe.split.shadow, recipe.split.alpha)],
-    [0.5, 'rgba(0, 0, 0, 0)'],
-    [1, rgba(recipe.split.highlight, recipe.split.alpha)],
-  ], 'overlay');
-
-  const a = { ...NEUTRAL, ...adjust };
-  const temp = signed(a.temperature);
+function applyAdjust(ctx, w, h, adjust) {
+  const temp = (adjust.temperature || 0) / 100;
   if (temp) {
-    const tint = temp > 0 ? '#FFB24A' : '#2B6E9C';
+    const amount = Math.abs(temp) * 0.16;
     ctx.save();
     ctx.globalCompositeOperation = 'overlay';
-    ctx.fillStyle = rgba(tint, Math.abs(temp) * 0.4);
+    ctx.fillStyle = temp > 0
+      ? `rgba(255, 178, 74, ${amount})`
+      : `rgba(43, 110, 156, ${amount})`;
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
   }
-  paintLumaMask(ctx, w, h, signed(a.highlights), 'highlight');
-  paintLumaMask(ctx, w, h, signed(a.shadows), 'shadow');
+  const hi = (adjust.highlights || 0) / 100;
+  const sh = (adjust.shadows || 0) / 100;
+  if (!hi && !sh) return;
+  const image = ctx.getImageData(0, 0, w, h);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    if (hi && lum > 0.5) {
+      const mask = (lum - 0.5) * 2;
+      const strength = hi * mask;
+      if (strength > 0) {
+        r = screenChannel(r, strength);
+        g = screenChannel(g, strength);
+        b = screenChannel(b, strength);
+      } else {
+        const keep = 1 + strength;
+        r *= keep;
+        g *= keep;
+        b *= keep;
+      }
+    }
+    if (sh && lum < 0.5) {
+      const mask = (0.5 - lum) * 2;
+      const strength = sh * mask;
+      if (strength > 0) {
+        const lift = 255 * Math.min(0.2, strength * 0.2);
+        r = Math.max(r, lift);
+        g = Math.max(g, lift);
+        b = Math.max(b, lift);
+      } else {
+        const keep = 1 + strength * 0.65;
+        r *= keep;
+        g *= keep;
+        b *= keep;
+      }
+    }
+    data[i] = clampByte(r);
+    data[i + 1] = clampByte(g);
+    data[i + 2] = clampByte(b);
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+/** Grade one photo onto a new canvas. `adjust` is the manual slider set, each -100..100. */
+export function gradePhoto(img, grade, adjust = {}) {
+  const recipe = typeof grade === 'string' ? gradeByName(grade) : grade;
+  const { w, h } = imageSize(img);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, w);
+  canvas.height = Math.max(1, h);
+  const ctx = canvas.getContext('2d');
+  if (w < 1 || h < 1) return canvas;
+  ctx.filter = filterString(recipe.filter, adjust);
+  ctx.drawImage(img, 0, 0, w, h);
+  ctx.filter = 'none';
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  fillVertical(ctx, w, h, 'rgba(0,0,0,0)', `rgba(${hexToRgb(recipe.shadow.color).r}, ${hexToRgb(recipe.shadow.color).g}, ${hexToRgb(recipe.shadow.color).b}, ${recipe.shadow.alpha})`);
+  ctx.restore();
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  const hi = hexToRgb(recipe.highlight.color);
+  fillVertical(ctx, w, h, `rgba(${hi.r}, ${hi.g}, ${hi.b}, ${recipe.highlight.alpha})`, 'rgba(0,0,0,0)');
+  ctx.restore();
+  applySplit(ctx, w, h, recipe.split);
+  applyAdjust(ctx, w, h, adjust);
   return canvas;
 }
 
-// One 256 px tile, hashed from its own coordinates so two renders match.
-function grainTile() {
+let grainTile = null;
+
+function noiseTile() {
+  if (grainTile) return grainTile;
   const size = 256;
-  const tile = document.createElement('canvas');
-  tile.width = size;
-  tile.height = size;
-  const ctx = tile.getContext('2d');
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
   const image = ctx.createImageData(size, size);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const n = (Math.imul(x + 1, 374761393) ^ Math.imul(y + 1, 668265263)) >>> 0;
-      const v = n % 255;
-      const i = (y * size + x) * 4;
-      image.data[i] = v;
-      image.data[i + 1] = v;
-      image.data[i + 2] = v;
-      image.data[i + 3] = 255;
-    }
+  const data = image.data;
+  let seed = 0x6d2b79f5;
+  for (let i = 0; i < data.length; i += 4) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const v = seed & 255;
+    data[i] = v;
+    data[i + 1] = v;
+    data[i + 2] = v;
+    data[i + 3] = 255;
   }
   ctx.putImageData(image, 0, 0);
-  return tile;
+  grainTile = canvas;
+  return canvas;
 }
 
-let grain = null;
-
-function paintGrain(ctx, w, h, amount) {
-  const alpha = unit(amount) * 0.16;
-  if (!alpha) return;
-  if (!grain) grain = grainTile();
-  ctx.save();
-  ctx.globalCompositeOperation = 'overlay';
-  ctx.globalAlpha = alpha;
-  const pattern = ctx.createPattern(grain, 'repeat');
-  ctx.fillStyle = pattern;
-  ctx.fillRect(0, 0, w, h);
-  ctx.restore();
+function amountOf(value, fallback) {
+  const n = Number(value);
+  return clamp01((Number.isFinite(n) ? n : fallback) / 100);
 }
 
-function paintVignette(ctx, w, h, amount) {
-  const alpha = 0.25 + unit(amount) * 0.3;
-  const reach = Math.max(w, h);
-  const grad = ctx.createRadialGradient(w / 2, h / 2, reach * 0.28, w / 2, h / 2, reach * 0.72);
-  grad.addColorStop(0, 'rgba(10, 9, 16, 0)');
-  grad.addColorStop(1, rgba('#0A0910', alpha));
-  ctx.save();
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, w, h);
-  ctx.restore();
-}
-
-function paintBloom(ctx, w, h, amount) {
-  const scale = 0.25;
-  const small = document.createElement('canvas');
-  small.width = Math.max(1, Math.round(w * scale));
-  small.height = Math.max(1, Math.round(h * scale));
-  const sctx = small.getContext('2d');
-  sctx.filter = 'brightness(1.6) blur(6px)';
-  sctx.drawImage(ctx.canvas, 0, 0, small.width, small.height);
-  ctx.save();
-  ctx.globalCompositeOperation = 'screen';
-  ctx.globalAlpha = unit(amount) * 0.18;
-  ctx.drawImage(small, 0, 0, w, h);
-  ctx.restore();
-}
-
-function paintLeak(ctx, w, h, amount) {
-  const alpha = unit(amount);
-  if (!alpha) return;
-  const reach = Math.max(w, h);
-  ctx.save();
-  ctx.globalCompositeOperation = 'screen';
-  ctx.translate(w * 0.1, h * 0.05);
-  ctx.rotate(-0.4);
-  const coral = ctx.createLinearGradient(0, 0, reach * 0.6, 0);
-  coral.addColorStop(0, rgba('#FF5F52', 0.55 * alpha));
-  coral.addColorStop(1, 'rgba(255, 95, 82, 0)');
-  ctx.fillStyle = coral;
-  ctx.fillRect(-reach, -reach, reach * 2, reach);
-  ctx.rotate(0.7);
-  const amber = ctx.createLinearGradient(0, 0, reach * 0.5, 0);
-  amber.addColorStop(0, rgba('#FFB24A', 0.4 * alpha));
-  amber.addColorStop(1, 'rgba(255, 178, 74, 0)');
-  ctx.fillStyle = amber;
-  ctx.fillRect(-reach, -reach, reach * 2, reach);
-  ctx.restore();
-}
-
-function paintChromaticEdge(ctx, w, h) {
-  ctx.save();
-  ctx.globalAlpha = 0.08;
-  ctx.fillStyle = '#0E9C96';
-  ctx.fillRect(0, 0, 2, h);
-  ctx.fillStyle = '#FF5F52';
-  ctx.fillRect(w - 2, 0, 2, h);
-  ctx.restore();
-}
-
-function frameOf(ctx, size) {
-  if (size && typeof size === 'object') return { w: size.w, h: size.h };
-  const canvas = ctx.canvas;
-  if (typeof size === 'number') {
-    return canvas && canvas.width !== canvas.height
-      ? { w: canvas.width, h: canvas.height }
-      : { w: size, h: size };
-  }
-  return { w: canvas.width, h: canvas.height };
-}
-
+/**
+ * Atmosphere over the composed poster. `amount` is `{ grain, vignette, bloom, leak, edge }`,
+ * each 0..100; a missing key falls back to the grade recipe. Zero is a no-op for that effect.
+ */
 export function paintAtmosphere(ctx, size, grade, amount = {}) {
-  const recipe = typeof grade === 'string' ? gradeById(grade) : grade;
-  const base = recipe.atmosphere || {};
-  const grainAmount = amount.grain ?? base.grain ?? 0;
-  const vignetteAmount = amount.vignette ?? base.vignette ?? 0;
-  const bloomAmount = amount.bloom ?? base.bloom ?? 0;
-  const leakAmount = amount.leak ?? base.leak ?? 0;
-  const { w, h } = frameOf(ctx, size);
-  paintGrain(ctx, w, h, grainAmount);
-  paintVignette(ctx, w, h, vignetteAmount);
-  paintBloom(ctx, w, h, bloomAmount);
-  paintLeak(ctx, w, h, leakAmount);
-  paintChromaticEdge(ctx, w, h);
+  const recipe = typeof grade === 'string' ? gradeByName(grade) : grade;
+  const base = recipe.atmosphere;
+  const w = size.w;
+  const h = size.h;
+  const grain = amountOf(amount.grain, base.grain);
+  const vignette = amountOf(amount.vignette, base.vignette);
+  const bloom = amountOf(amount.bloom, base.bloom);
+  const leak = amountOf(amount.leak, base.leak);
+  const edge = amountOf(amount.edge, base.edge);
+
+  if (grain > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = 0.04 + grain * 0.12;
+    const tile = noiseTile();
+    const pattern = ctx.createPattern(tile, 'repeat');
+    ctx.fillStyle = pattern;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+
+  if (vignette > 0) {
+    const radius = Math.hypot(w, h) * 0.62;
+    const paint = ctx.createRadialGradient(w / 2, h / 2, radius * 0.35, w / 2, h / 2, radius);
+    const alpha = 0.25 + vignette * 0.3;
+    paint.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    paint.addColorStop(1, `rgba(10, 9, 16, ${alpha})`);
+    ctx.save();
+    ctx.fillStyle = paint;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+
+  if (bloom > 0) {
+    const scale = 0.25;
+    const small = document.createElement('canvas');
+    small.width = Math.max(1, Math.round(w * scale));
+    small.height = Math.max(1, Math.round(h * scale));
+    const sctx = small.getContext('2d');
+    sctx.filter = 'brightness(1.8) contrast(1.4)';
+    sctx.drawImage(ctx.canvas, 0, 0, small.width, small.height);
+    sctx.filter = 'none';
+    const blurred = document.createElement('canvas');
+    blurred.width = small.width;
+    blurred.height = small.height;
+    const bctx = blurred.getContext('2d');
+    bctx.filter = 'blur(18px)';
+    bctx.drawImage(small, 0, 0);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = bloom * 0.18;
+    ctx.drawImage(blurred, 0, 0, w, h);
+    ctx.restore();
+  }
+
+  if (leak > 0) {
+    ctx.save();
+    ctx.translate(w * 0.92, h * 0.08);
+    ctx.rotate(-0.6);
+    const coral = ctx.createLinearGradient(0, 0, w * 0.7, 0);
+    coral.addColorStop(0, `rgba(255, 95, 82, ${0.18 + leak * 0.28})`);
+    coral.addColorStop(1, 'rgba(255, 95, 82, 0)');
+    ctx.fillStyle = coral;
+    ctx.fillRect(-w * 0.2, -h * 0.4, w, h * 0.7);
+    ctx.rotate(0.35);
+    const amber = ctx.createLinearGradient(0, 0, w * 0.5, h * 0.4);
+    amber.addColorStop(0, `rgba(255, 178, 74, ${0.12 + leak * 0.22})`);
+    amber.addColorStop(1, 'rgba(255, 178, 74, 0)');
+    ctx.fillStyle = amber;
+    ctx.fillRect(-w * 0.1, -h * 0.1, w * 0.8, h * 0.6);
+    ctx.restore();
+  }
+
+  if (edge > 0) {
+    const alpha = 0.08 * edge;
+    ctx.save();
+    ctx.fillStyle = `rgba(14, 156, 150, ${alpha})`;
+    ctx.fillRect(2, 2, 2, h - 4);
+    ctx.fillStyle = `rgba(255, 95, 82, ${alpha})`;
+    ctx.fillRect(w - 4, 2, 2, h - 4);
+    ctx.restore();
+  }
 }

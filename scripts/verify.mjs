@@ -93,7 +93,7 @@ const page = await shoot(resolve(OUT, 'page-probe.png'), [
     return {
       colors: seen.size,
       photos: window.__studio.state.photos.length,
-      controls: ['#rail-left', '#rail-right', '#export-png', '#photo-strip'].filter(box).length,
+      controls: ['#rail-left', '#rail-right', '#export-all', '#photo-strip'].filter(box).length,
       canvas: [canvas.width, canvas.height],
     };
   })()`,

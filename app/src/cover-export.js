@@ -1,49 +1,69 @@
-import { renderPreview } from './cover-render.js';
+// Offscreen export. Preview and PNG share `renderCover`; this file only sizes the
+// canvas, reports progress, and starts the download.
 
-const SIZES = [
+export const EXPORT_SIZES = [
   { w: 1080, h: 1080 },
   { w: 1080, h: 1350 },
   { w: 1920, h: 1080 },
 ];
 
-function canvasBlob(canvas) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('png encode failed'))), 'image/png');
-  });
+function slug(value) {
+  const clean = String(value || 'cover')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return clean || 'cover';
 }
 
-function download(blob, name) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+export function exportName(state, size) {
+  return `${slug(state?.title)}-${slug(state?.layoutId)}-${size.w}x${size.h}.png`;
 }
 
-function slug(s) {
-  return String(s || 'cover').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cover';
-}
-
-export function fileName(state, size) {
-  return `vice-diaries-${slug(state.layoutId)}-${size.w}x${size.h}.png`;
-}
-
-export async function exportCover(state, size, opts = {}) {
-  const target = size || state.size || SIZES[0];
-  const name = opts.name || fileName(state, target);
+function canvasOf(size) {
   const canvas = document.createElement('canvas');
-  canvas.width = target.w;
-  canvas.height = target.h;
-  renderPreview(canvas, state, { forExport: true, scale: target.w / 1080 });
-  const blob = await canvasBlob(canvas);
-  if (opts.download !== false) download(blob, name);
-  return { name, bytes: blob.size, blob, size: { w: target.w, h: target.h }, w: target.w, h: target.h };
+  canvas.width = size.w;
+  canvas.height = size.h;
+  return canvas;
 }
 
-export async function exportAll(state, opts = {}) {
-  const out = [];
-  for (const size of SIZES) out.push(await exportCover(state, size, { ...opts, name: fileName(state, size) }));
-  return out;
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/** Render `state` at `size` and download it. `onProgress` receives `{ phase, index, total, filename }`. */
+export async function exportCover(state, size, filename, hooks = {}) {
+  const { renderCover, onProgress } = hooks;
+  if (typeof renderCover !== 'function') throw new Error('exportCover needs renderCover');
+  const name = filename || exportName(state, size);
+  onProgress?.({ phase: 'start', index: 0, total: 1, filename: name });
+  const canvas = canvasOf(size);
+  const ctx = canvas.getContext('2d');
+  await renderCover(ctx, state, { scale: 1, forExport: true, size });
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('png encode failed');
+  if (hooks.download !== false) downloadBlob(blob, name);
+  onProgress?.({ phase: 'done', index: 1, total: 1, filename: name });
+  return { filename: name, width: size.w, height: size.h, bytes: blob.size, blob, size: { w: size.w, h: size.h } };
+}
+
+/** Render the three poster sizes in order. */
+export async function exportAll(state, hooks = {}) {
+  const names = [];
+  const total = EXPORT_SIZES.length;
+  for (let i = 0; i < total; i += 1) {
+    const size = EXPORT_SIZES[i];
+    const filename = exportName(state, size);
+    hooks.onProgress?.({ phase: 'start', index: i, total, filename });
+    const result = await exportCover(state, size, filename, {
+      renderCover: hooks.renderCover,
+    });
+    names.push(result);
+    hooks.onProgress?.({ phase: 'done', index: i + 1, total, filename });
+  }
+  return names;
 }

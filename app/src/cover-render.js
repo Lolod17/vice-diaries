@@ -1,276 +1,269 @@
-// One drawing path for the live preview and the exported PNG. `renderCover`
-// paints into a context whose canvas is already the target size; `renderPreview`
-// grades the photos first and then calls it.
+// One drawing path for the live preview and the exported PNG.
 
-import { layoutById } from './poster-layouts.js';
+import { layoutById, panelsForPhotoCount } from './poster-layouts.js';
 import { drawPanelPhoto } from './photo-fit.js';
-import { gradeById, gradePhoto, paintAtmosphere } from './color-grade.js';
+import { gradeByName, gradePhoto, paintAtmosphere } from './color-grade.js';
 import {
   drawTitle, drawSubtitle, drawPanelCaption, drawCredits, drawBarcode, drawTags,
 } from './lettering.js';
 
-const INK = '#0A0910';
-const PAPER = 'rgba(243, 232, 214, 0.78)';
-const CORAL = '#FF5F52';
-const VIOLET = '#4B2360';
-
-const PLATES = [
-  ['#4B2360', '#FFB24A'],
-  ['#0E9C96', '#D8306F'],
-  ['#2B6E9C', '#F3E8D6'],
-  ['#D8306F', '#0A0910'],
-];
-
-function imageOf(entry) {
-  if (!entry) return null;
-  return entry.image || entry;
+function hexToRgb(hex) {
+  const n = parseInt(String(hex).replace('#', ''), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-function photoList(state) {
-  return (state.photos || []).filter((entry) => imageOf(entry));
-}
-
-function panelState(state, index, slot) {
-  const panels = state.panels || [];
-  const own = panels[index] || {};
+function rectOf(panel, frame) {
   return {
-    zoom: own.zoom ?? 1,
-    focusX: own.focusX ?? 0.5,
-    focusY: own.focusY ?? 0.5,
-    rotate: own.rotate ?? slot.rotate ?? 0,
-    fit: own.fit || 'cover',
-    caption: own.caption || '',
-    timecode: own.timecode || '',
+    x: panel.x * frame.w,
+    y: panel.y * frame.h,
+    w: panel.w * frame.w,
+    h: panel.h * frame.h,
   };
 }
 
-function rectOf(slot, w, h) {
-  return { x: slot.x * w, y: slot.y * h, w: slot.w * w, h: slot.h * h };
-}
-
-// A panel with no photo still has to read as part of the poster.
-function plate(ctx, rect, index) {
-  const pair = PLATES[index % PLATES.length];
-  const g = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
-  g.addColorStop(0, pair[0]);
-  g.addColorStop(1, pair[1]);
-  ctx.fillStyle = g;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-}
-
-// Four background painters: a flat colour field, a blurred photo under an ink
-// wash, a radial vignette, and a two-stop linear gradient.
-function background(ctx, layout, w, h, photo) {
-  const bg = layout.background || {};
-  if (bg.kind === 'field') {
+function paintBackground(ctx, layout, frame, photos, compare) {
+  const bg = layout.background || { type: 'field', color: '#0A0910' };
+  ctx.fillStyle = '#0A0910';
+  ctx.fillRect(0, 0, frame.w, frame.h);
+  if (bg.type === 'field') {
     ctx.fillStyle = bg.color || '#14111C';
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, frame.w, frame.h);
     return;
   }
-  if (bg.kind === 'photo') {
-    ctx.fillStyle = INK;
-    ctx.fillRect(0, 0, w, h);
-    if (photo) {
-      const scale = bg.scale || 1.08;
+  if (bg.type === 'photo') {
+    const photo = photos[bg.photoSlot || 0];
+    if (photo && !compare) {
+      const scale = bg.scale || 1.18;
+      const dw = frame.w * scale;
+      const dh = frame.h * scale;
       ctx.save();
       ctx.filter = 'blur(18px)';
-      ctx.globalAlpha = 0.24;
-      ctx.drawImage(photo, (w - w * scale) / 2, (h - h * scale) / 2, w * scale, h * scale);
+      ctx.globalAlpha = bg.opacity ?? 0.24;
+      ctx.drawImage(photo, (frame.w - dw) / 2, (frame.h - dh) / 2, dw, dh);
       ctx.restore();
     }
-    ctx.fillStyle = 'rgba(10, 9, 16, 0.4)';
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = bg.overlay || 'rgba(10, 9, 16, 0.4)';
+    ctx.fillRect(0, 0, frame.w, frame.h);
     return;
   }
-  if (bg.kind === 'vignette') {
-    ctx.fillStyle = bg.color || '#14111C';
-    ctx.fillRect(0, 0, w, h);
-    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.72);
-    g.addColorStop(0, 'rgba(10, 9, 16, 0)');
-    g.addColorStop(1, bg.edge || INK);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-    return;
-  }
-  const radians = ((bg.angle || 180) * Math.PI) / 180;
-  const x1 = w / 2 + Math.sin(radians) * w / 2;
-  const y1 = h / 2 + Math.cos(radians) * h / 2;
-  const g = ctx.createLinearGradient(w - x1, h - y1, x1, y1);
-  g.addColorStop(0, bg.from || bg.color || '#14111C');
-  g.addColorStop(1, bg.to || bg.edge || INK);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-}
-
-function clipShape(ctx, slot, rect) {
-  ctx.beginPath();
-  if (slot.kind === 'diagonal') {
-    ctx.moveTo(rect.x, rect.y);
-    ctx.lineTo(rect.x + rect.w, rect.y);
-    ctx.lineTo(rect.x + rect.w * 0.72, rect.y + rect.h);
-    ctx.lineTo(rect.x, rect.y + rect.h);
-  } else {
-    ctx.rect(rect.x, rect.y, rect.w, rect.h);
-  }
-  ctx.closePath();
-}
-
-// Darkens the panel edges and lays a short scrim along the bottom so a caption
-// set over the photo stays readable.
-function panelShade(ctx, rect) {
-  ctx.save();
-  const edge = ctx.createRadialGradient(
-    rect.x + rect.w / 2, rect.y + rect.h / 2, Math.min(rect.w, rect.h) * 0.3,
-    rect.x + rect.w / 2, rect.y + rect.h / 2, Math.max(rect.w, rect.h) * 0.72,
+  const angle = ((bg.angle ?? 160) * Math.PI) / 180;
+  const cx = frame.w / 2;
+  const cy = frame.h / 2;
+  const len = Math.hypot(frame.w, frame.h) / 2;
+  const paint = ctx.createLinearGradient(
+    cx - Math.cos(angle) * len,
+    cy - Math.sin(angle) * len,
+    cx + Math.cos(angle) * len,
+    cy + Math.sin(angle) * len,
   );
-  edge.addColorStop(0, 'rgba(10, 9, 16, 0)');
-  edge.addColorStop(1, 'rgba(10, 9, 16, 0.45)');
-  ctx.fillStyle = edge;
+  paint.addColorStop(0, bg.from || '#4B2360');
+  paint.addColorStop(1, bg.to || '#0A0910');
+  ctx.fillStyle = paint;
+  ctx.fillRect(0, 0, frame.w, frame.h);
+}
+
+function panelPhoto(panel, photos) {
+  if (panel.kind === 'field' || panel.photoIndex < 0) return null;
+  return photos[panel.photoIndex] || null;
+}
+
+function panelState(panel, state) {
+  const slots = state.panels || [];
+  const slot = slots[panel.slot] || slots[panel.photoIndex] || {};
+  return {
+    zoom: slot.zoom ?? 1,
+    focusX: slot.focusX ?? 0,
+    focusY: slot.focusY ?? 0,
+    rotate: (panel.rotate || 0) + (slot.rotate || 0),
+    border: panel.border,
+    mode: slot.mode,
+    timecode: slot.timecode || '',
+    caption: slot.caption || '',
+  };
+}
+
+function scrim(ctx, rect, alpha) {
+  const paint = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.h);
+  paint.addColorStop(0, 'rgba(10, 9, 16, 0)');
+  paint.addColorStop(0.62, 'rgba(10, 9, 16, 0)');
+  paint.addColorStop(1, `rgba(10, 9, 16, ${alpha})`);
+  ctx.fillStyle = paint;
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  const scrim = ctx.createLinearGradient(0, rect.y + rect.h * 0.62, 0, rect.y + rect.h);
-  scrim.addColorStop(0, 'rgba(10, 9, 16, 0)');
-  scrim.addColorStop(1, 'rgba(10, 9, 16, 0.72)');
-  ctx.fillStyle = scrim;
-  ctx.fillRect(rect.x, rect.y + rect.h * 0.62, rect.w, rect.h * 0.38);
-  ctx.restore();
 }
 
-function paperBorder(ctx, rect, scale, color) {
+function vignettePanel(ctx, rect) {
+  const paint = ctx.createRadialGradient(
+    rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w * 0.2,
+    rect.x + rect.w / 2, rect.y + rect.h / 2, Math.hypot(rect.w, rect.h) * 0.55,
+  );
+  paint.addColorStop(0, 'rgba(10, 9, 16, 0)');
+  paint.addColorStop(1, 'rgba(10, 9, 16, 0.38)');
+  ctx.fillStyle = paint;
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+}
+
+function clipDiagonal(ctx, rect) {
+  ctx.beginPath();
+  ctx.moveTo(rect.x, rect.y);
+  ctx.lineTo(rect.x + rect.w * 0.92, rect.y);
+  ctx.lineTo(rect.x + rect.w * 0.62, rect.y + rect.h);
+  ctx.lineTo(rect.x, rect.y + rect.h);
+  ctx.closePath();
+  ctx.clip();
+}
+
+function paintTape(ctx, rect) {
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3 * scale;
-  ctx.strokeRect(rect.x + 1.5 * scale, rect.y + 1.5 * scale, rect.w - 3 * scale, rect.h - 3 * scale);
+  ctx.translate(rect.x + 18, rect.y - 6);
+  ctx.rotate(-0.4);
+  ctx.fillStyle = 'rgba(255, 95, 82, 0.82)';
+  ctx.fillRect(0, 0, 54, 16);
   ctx.restore();
 }
 
-// The title band on Vice Classic is a gradient rather than bare photo.
-function titleBand(ctx, zone, w, h) {
-  const band = ctx.createLinearGradient(0, zone.y * h, 0, h);
-  band.addColorStop(0, 'rgba(216, 48, 111, 0)');
-  band.addColorStop(0.35, 'rgba(216, 48, 111, 0.55)');
-  band.addColorStop(1, 'rgba(10, 9, 16, 0.92)');
-  ctx.fillStyle = band;
-  ctx.fillRect(0, zone.y * h, w, h - zone.y * h);
-}
-
-// Pulls the finished poster toward one palette: the grade's shadow tint
-// multiplied in, its highlight tint screened in, a coral-to-violet wash and a
-// light magenta veil.
-function unify(ctx, w, h, gradeId) {
-  const grade = gradeById(gradeId);
+function unify(ctx, frame, grade) {
+  const shadow = hexToRgb(grade.shadow.color);
+  const highlight = hexToRgb(grade.highlight.color);
   ctx.save();
   ctx.globalCompositeOperation = 'multiply';
-  ctx.fillStyle = hexAlpha(grade.shadow.color, 0.22);
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = `rgba(${shadow.r}, ${shadow.g}, ${shadow.b}, 0.22)`;
+  ctx.fillRect(0, 0, frame.w, frame.h);
+  ctx.restore();
+
+  ctx.save();
   ctx.globalCompositeOperation = 'screen';
-  ctx.fillStyle = hexAlpha(grade.highlight.color, 0.16);
-  ctx.fillRect(0, 0, w, h);
-  ctx.globalCompositeOperation = 'overlay';
-  const wash = ctx.createLinearGradient(0, 0, w * Math.cos(Math.PI / 6), h * Math.sin(Math.PI / 6));
+  ctx.fillStyle = `rgba(${highlight.r}, ${highlight.g}, ${highlight.b}, 0.16)`;
+  ctx.fillRect(0, 0, frame.w, frame.h);
+  ctx.restore();
+
+  const angle = (30 * Math.PI) / 180;
+  const len = Math.hypot(frame.w, frame.h);
+  const wash = ctx.createLinearGradient(0, frame.h, Math.cos(angle) * len, frame.h - Math.sin(angle) * len);
   wash.addColorStop(0, 'rgba(255, 95, 82, 0.12)');
   wash.addColorStop(1, 'rgba(75, 35, 96, 0.16)');
+  ctx.save();
   ctx.fillStyle = wash;
-  ctx.fillRect(0, 0, w, h);
-  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillRect(0, 0, frame.w, frame.h);
+  ctx.restore();
+
+  ctx.save();
   ctx.fillStyle = 'rgba(216, 48, 111, 0.08)';
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(0, 0, frame.w, frame.h);
   ctx.restore();
 }
 
-function hexAlpha(hex, alpha) {
-  const n = parseInt(String(hex).slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+function resolvePhotos(state) {
+  const list = state.photos || [];
+  if (list.length) return list;
+  return state.sample ? [state.sample] : [];
 }
 
-// A panel names its photo; panels past the end of the loaded set wrap around so
-// a slot is never left blank while a photo exists.
-function resolvePhoto(state, photos, graded, index) {
-  if (!photos.length) return null;
-  const wanted = state.panels && state.panels[index] && state.panels[index].photoId;
-  const entry = photos.find((photo) => photo.id === wanted) || photos[index % photos.length];
-  return graded.get(entry.id) || imageOf(entry);
+const gradeCache = new Map();
+
+function cachedGrade(photo, grade, adjust) {
+  const key = `${photo.__name || photo.src || ''}|${grade.id}|${JSON.stringify(adjust)}`;
+  let canvas = gradeCache.get(key);
+  if (!canvas) {
+    canvas = gradePhoto(photo, grade, adjust);
+    gradeCache.set(key, canvas);
+  }
+  return canvas;
 }
 
+function meanLum(ctx, rect) {
+  const x = Math.max(0, Math.round(rect.x));
+  const y = Math.max(0, Math.round(rect.y));
+  const w = Math.max(1, Math.min(ctx.canvas.width - x, Math.round(rect.w)));
+  const h = Math.max(1, Math.min(ctx.canvas.height - y, Math.round(rect.h)));
+    const step = Math.max(16, Math.round((w * h) / 4000)) * 4;
+  const data = ctx.getImageData(x, y, w, h).data;
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < data.length; i += step) {
+    sum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+    n += 1;
+  }
+  return n ? sum / n : 0;
+}
+
+let metrics = { titleFrac: 0, lumSpread: 0, panelLum: [] };
+
+export function lastMetrics() {
+  return metrics;
+}
+
+/** Draw the whole cover. `ctx.canvas` is already the target size. */
 export function renderCover(ctx, state, opts = {}) {
-  const layout = layoutById(state.layoutId);
-  const w = ctx.canvas.width;
-  const h = ctx.canvas.height;
-  const scale = opts.scale || w / 1080;
-  const photos = photoList(state);
-  const graded = opts.graded || new Map();
-  const first = resolvePhoto(state, photos, graded, 0);
+  const frame = { w: ctx.canvas.width, h: ctx.canvas.height };
+  const layout = layoutById(state.layoutId) || layoutById('vice-classic');
+  const grade = gradeByName(state.gradeId || layout.defaultGrade);
+  const photos = resolvePhotos(state);
+  const compare = Boolean(state.compare) && !opts.forExport;
+  const panels = panelsForPhotoCount(layout, photos.length);
 
-  ctx.clearRect(0, 0, w, h);
-  background(ctx, layout, w, h, imageOf(photos[0]));
-
-  layout.panels.forEach((slot, index) => {
-    const rect = rectOf(slot, w, h);
-    if (slot.kind === 'field') {
-      ctx.fillStyle = VIOLET;
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      return;
-    }
-    const panel = panelState(state, index, slot);
-    const img = resolvePhoto(state, photos, graded, index);
-    ctx.save();
-    clipShape(ctx, slot, rect);
-    ctx.clip();
-    if (img) drawPanelPhoto(ctx, img, rect, panel, state);
-    else plate(ctx, rect, index);
-    if (slot.kind !== 'bleed') panelShade(ctx, rect);
-    if (slot.kind === 'scrim') {
-      ctx.fillStyle = 'rgba(10, 9, 16, 0.4)';
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    }
-    ctx.restore();
-    if (slot.border && slot.border !== 'none') {
-      paperBorder(ctx, rect, scale, slot.border === 'coral' ? CORAL : PAPER);
-    }
-    if (slot.kind !== 'bleed' && slot.kind !== 'scrim' && slot.kind !== 'field') {
-      drawPanelCaption(ctx, panel, rect, state, scale);
-    }
-  });
+  paintBackground(ctx, layout, frame, photos, compare);
 
   const zone = layout.titleZone;
-  if (layout.id === 'vice-classic') titleBand(ctx, zone, w, h);
-  const titleRect = { x: zone.x * w, y: zone.y * h, w: zone.w * w, h: zone.h * h };
-  const measured = drawTitle(ctx, state, titleRect, scale);
-  drawSubtitle(ctx, state, {
-    x: titleRect.x,
-    y: titleRect.y + titleRect.h * 0.62,
-    w: titleRect.w,
-    h: titleRect.h * 0.38,
-  }, scale);
-  drawCredits(ctx, state, w * 0.5, h - 92 * scale, scale);
-  drawBarcode(ctx, w - 168 * scale, h - 86 * scale, 132 * scale, 40 * scale);
-  drawTags(ctx, state, w, h, scale);
+  const lum = [];
+  panels.forEach((panel) => {
+    const rect = rectOf(panel, frame);
+    const slot = panelState(panel, state);
+    ctx.save();
+    if (panel.clip === 'diagonal') clipDiagonal(ctx, rect);
+    if (panel.kind === 'field') {
+      ctx.fillStyle = panel.fill || '#4B2360';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    } else {
+      const photo = panelPhoto(panel, photos);
+      const graded = photo && !compare ? cachedGrade(photo, grade, state.adjust || {}) : null;
+      drawPanelPhoto(ctx, photo, rect, { ...slot, gradeCanvas: graded, border: panel.border }, state);
+      vignettePanel(ctx, rect);
+      scrim(ctx, rect, panel.scrim ? Math.max(0.4, panel.scrim) : 0.55);
+      if (panel.scrim) {
+        ctx.fillStyle = `rgba(10, 9, 16, ${panel.scrim})`;
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      }
+      if (layout.rules?.overlap === 'tape') paintTape(ctx, rect);
+      lum.push(meanLum(ctx, rect));
+      const underTitle = panel.y + panel.h > zone.y + 0.02;
+      const captionRect = underTitle
+        ? { x: rect.x, y: rect.y + 8, w: rect.w, h: Math.min(72, rect.h * 0.34) }
+        : rect;
+      if (panel.kind !== 'plate') drawPanelCaption(ctx, slot, captionRect, state);
+    }
+    ctx.restore();
+  });
 
-  if (!opts.compare && !state.compare) {
-    paintAtmosphere(ctx, { w, h }, state.gradeId, {
+  const titleBox = drawTitle(ctx, state, zone, frame);
+  const spread = lum.length ? Math.max(...lum) - Math.min(...lum) : 0;
+  metrics = {
+    titleFrac: frame.w ? (titleBox.ink || 0) / frame.w : 0,
+    lumSpread: spread,
+    panelLum: lum,
+  };
+  drawSubtitle(ctx, state, zone, frame, titleBox);
+  if (layout.rules?.rule === 'cream') {
+    ctx.fillStyle = '#F8EBCB';
+    ctx.fillRect(zone.x * frame.w, titleBox.y - 10, zone.w * frame.w, 2);
+  }
+  drawCredits(ctx, state, frame);
+  drawTags(ctx, state, frame);
+  drawBarcode(ctx, state, frame);
+
+  if (!compare) {
+    paintAtmosphere(ctx, frame, grade, {
       grain: state.grain,
       vignette: state.vignette,
       bloom: state.bloom,
       leak: state.leak,
     });
+    unify(ctx, frame, grade);
   }
-  unify(ctx, w, h, state.gradeId);
-
-  if (measured) state.lastTitle = { width: measured.width, frame: w };
-  void first;
 }
 
-function gradeCache(state) {
-  const map = new Map();
-  if (state.compare) return map;
-  for (const entry of state.photos || []) {
-    const img = imageOf(entry);
-    if (!img || !entry.id || map.has(entry.id)) continue;
-    map.set(entry.id, gradePhoto(img, state.gradeId, state.adjust));
-  }
-  return map;
-}
-
-export function renderPreview(canvas, state, opts = {}) {
+/** Size is the canvas bitmap. Stage zoom is CSS, applied by the editor. */
+export function renderPreview(canvas, state) {
   const ctx = canvas.getContext('2d');
-  renderCover(ctx, state, { ...opts, scale: opts.scale || canvas.width / 1080, graded: gradeCache(state) });
+  renderCover(ctx, state, { scale: 1, forExport: false });
+  return canvas;
 }

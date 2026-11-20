@@ -1,422 +1,362 @@
-// Wires the rails, the stage and the keyboard to the studio state. Every change
-// goes through `commit`, which keeps a 40-step history and repaints.
+// Editor: photos, panel framing, lettering, grade, undo, export.
 
-import './shots.js';
-import { LAYOUTS, layoutById } from './poster-layouts.js';
-import { GRADES } from './color-grade.js';
-import { exportCover, exportAll, fileName } from './cover-export.js';
+import { LAYOUTS } from './poster-layouts.js';
+import { renderPreview, lastMetrics } from './cover-render.js';
+import { exportCover, exportAll, exportName } from './cover-export.js';
+import { freshState } from './shots.js';
 
 const SAMPLES = [
-  'pier', 'boulevard', 'hotel-dusk', 'marina-night',
-  'chrome-promenade', 'convertible-sunset', 'neon-crew',
+  'boulevard', 'pier', 'marina-night', 'hotel-dusk',
+  'convertible-sunset', 'chrome-promenade', 'neon-crew',
 ];
 
 const SHOTS = {
-  cover: { layout: 'vice-classic', size: '1920x1080', grade: 'vice-sunset' },
-  portrait: { layout: 'sunset-stories', size: '1080x1350', grade: 'miami-heat' },
-  square: { layout: 'miami-lifestyle', size: '1080x1080', grade: 'tropical-gold' },
+  cover: {
+    layoutId: 'vice-classic',
+    size: { w: 1920, h: 1080 },
+    gradeId: 'vice-sunset',
+    photos: ['boulevard', 'pier', 'marina-night', 'hotel-dusk'],
+    panels: [
+      ['01:12:04', 'BOULEVARD'],
+      ['01:18:41', 'THE PIER'],
+      ['01:24:09', 'MARINA'],
+      ['01:31:55', 'HOTEL'],
+    ],
+  },
+  portrait: {
+    layoutId: 'sunset-stories',
+    size: { w: 1080, h: 1350 },
+    gradeId: 'miami-heat',
+    photos: ['convertible-sunset', 'pier', 'boulevard', 'hotel-dusk'],
+    panels: [
+      ['02:02:11', 'SUNSET'],
+      ['02:09:40', 'STRIP'],
+      ['02:14:18', 'DRIVE'],
+      ['02:21:03', 'DUSK'],
+    ],
+  },
+  square: {
+    layoutId: 'miami-lifestyle',
+    size: { w: 1080, h: 1080 },
+    gradeId: 'tropical-gold',
+    photos: ['chrome-promenade', 'pier', 'hotel-dusk', 'marina-night', 'neon-crew', 'boulevard'],
+    panels: [
+      ['03:01:08', 'CHROME'],
+      ['03:06:22', 'PIER'],
+      ['03:11:47', 'HOTEL'],
+      ['03:18:05', 'MARINA'],
+      ['03:24:33', 'CREW'],
+      ['03:30:12', 'STREET'],
+    ],
+  },
 };
 
-const SIZES = {
-  '1080x1080': { w: 1080, h: 1080 },
-  '1080x1350': { w: 1080, h: 1350 },
-  '1920x1080': { w: 1920, h: 1080 },
-};
+const $ = (id) => document.getElementById(id);
 
-const CAPTIONS = ['THE CAUSEWAY', 'NIGHT MARKET', 'PALM DRIVE', 'LAST LIGHT', 'OPEN WATER', 'MAIN STRIP'];
-const TIMECODES = ['01:24:01', '01:24:18', '01:25:02', '01:26:44', '01:27:11', '01:28:05'];
-
-const ADJUST = [
-  ['brightness', 'Brightness'],
-  ['contrast', 'Contrast'],
-  ['saturation', 'Saturation'],
-  ['temperature', 'Temperature'],
-  ['highlights', 'Highlights'],
-  ['shadows', 'Shadows'],
-];
-
-const EFFECTS = [
-  ['grain', 'Grain'],
-  ['vignette', 'Vignette'],
-  ['bloom', 'Bloom'],
-  ['leak', 'Light leak'],
-];
-
-let studio = null;
+let state = freshState();
+let photos = [];
+let history = [];
+let future = [];
 let selected = 0;
-let stageZoom = 1;
-let comparing = false;
-let drag = null;
+let dirty = false;
+let painting = false;
+const stage = { zoom: 1 };
 
-const $ = (sel) => document.querySelector(sel);
-
-function state() {
-  return studio.state;
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
-function paint() {
-  return studio.render();
-}
-
-function remember(change) {
-  studio.checkpoint();
-  change();
-  hideHint();
-  return paint();
-}
-
-function hideHint() {
-  const hint = $('#hint');
+function remember() {
+  history.push(clone(state));
+  if (history.length > 40) history.shift();
+  future = [];
+  dirty = true;
+  const hint = $('hint');
   if (hint) hint.hidden = true;
 }
 
-function press(buttons, match) {
-  buttons.forEach((button) => {
-    button.setAttribute('aria-pressed', String(match(button)));
-  });
+function snapshotNow() {
+  if (!history.length) remember();
+  history[history.length - 1] = clone(state);
 }
 
-function syncRails() {
-  const s = state();
-  press(document.querySelectorAll('[data-layout]'), (b) => b.dataset.layout === s.layoutId);
-  press(document.querySelectorAll('[data-size]'), (b) => b.dataset.size === `${s.size.w}x${s.size.h}`);
-  press(document.querySelectorAll('[data-grade]'), (b) => b.dataset.grade === s.gradeId);
-  const lettering = $('#section-lettering');
-  if (!lettering) return;
-  lettering.querySelector('[data-field="title"]').value = s.title;
-  lettering.querySelector('[data-field="subtitle"]').value = s.subtitle;
-  lettering.querySelector('[data-field="tagline"]').value = s.tagline;
-  lettering.querySelector('[data-field="issue"]').value = s.issue;
-  lettering.querySelector('[data-field="rating"]').value = s.rating;
-  lettering.querySelector('[data-field="titleScale"]').value = s.titleScale;
-  lettering.querySelector('[data-field="titleRotate"]').value = s.titleRotate;
-  press(lettering.querySelectorAll('[data-align]'), (b) => b.dataset.align === s.titleAlign);
-  const grade = $('#section-grade');
-  ADJUST.forEach(([key]) => {
-    const input = grade.querySelector(`[data-adjust="${key}"]`);
-    if (input) input.value = s.adjust[key];
-  });
-  EFFECTS.forEach(([key]) => {
-    const input = grade.querySelector(`[data-effect="${key}"]`);
-    if (input) input.value = s[key];
-  });
-  const panel = s.panels[selected] || {};
-  const box = $('#panel-controls');
-  if (box) {
-    box.querySelector('[data-panel="zoom"]').value = panel.zoom ?? 1;
-    box.querySelector('[data-panel="focusX"]').value = panel.focusX ?? 0.5;
-    box.querySelector('[data-panel="focusY"]').value = panel.focusY ?? 0.5;
-    box.querySelector('[data-panel="rotate"]').value = panel.rotate ?? 0;
-    const label = box.querySelector('[data-panel-label]');
-    if (label) label.textContent = `Panel ${selected + 1}`;
+function commit(mutate) {
+  remember();
+  mutate(state);
+  paint();
+  syncControls();
+}
+
+function undo() {
+  if (!history.length) return;
+  future.push(clone(state));
+  state = history.pop();
+  paint();
+  syncControls();
+}
+
+function redo() {
+  if (!future.length) return;
+  history.push(clone(state));
+  state = future.pop();
+  paint();
+  syncControls();
+}
+
+function photoById(id) {
+  return photos.find((photo) => photo.id === id) || null;
+}
+
+function orderedPhotos() {
+  for (const item of state.photos || []) {
+    if (!item || !item.image || photoById(item.id)) continue;
+    photos.push({ id: item.id, image: item.image, url: item.url || '' });
   }
-  const name = $('#section-export input[type="text"]');
-  if (name && document.activeElement !== name) name.value = fileName(s, s.size);
+  const used = state.panels.map((panel) => photoById(panel.photoId)).filter(Boolean);
+  const rest = photos.filter((photo) => !used.includes(photo));
+  return used.concat(rest);
 }
 
-function applyStageZoom() {
-  const canvas = $('#preview');
+function applyLayout(next, layout) {
+  next.layoutId = layout.id;
+  next.gradeId = layout.defaultGrade;
+  while (next.panels.length < layout.panels.length) {
+    const index = next.panels.length;
+    const photo = photos[index % Math.max(photos.length, 1)];
+    next.panels.push({
+      photoId: photo ? photo.id : '',
+      zoom: 1,
+      focusX: 0,
+      focusY: 0,
+      rotate: 0,
+      timecode: '',
+      caption: '',
+    });
+  }
+}
+
+function paint() {
+  const canvas = $('preview');
   if (!canvas) return;
-  canvas.style.transform = stageZoom === 1 ? '' : `scale(${stageZoom})`;
-  const label = $('#zoom-label');
-  if (label) label.textContent = stageZoom === 1 ? 'Fit' : `${Math.round(stageZoom * 100)}%`;
+  canvas.width = state.size.w;
+  canvas.height = state.size.h;
+  state.photos = orderedPhotos().map((photo) => photo.image);
+  painting = true;
+  renderPreview(canvas, state);
+  painting = false;
+  canvas.style.transform = `scale(${stage.zoom})`;
+  const label = $('zoom-label');
+  if (label) label.textContent = `${Math.round(stage.zoom * 100)}%`;
+  const name = $('export-name');
+  if (name && document.activeElement !== name) name.value = exportName(state, state.size);
 }
 
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`photo failed: ${src}`));
-    img.src = src;
+function setPressed(selector, attr, value) {
+  document.querySelectorAll(selector).forEach((node) => {
+    node.setAttribute('aria-pressed', String(node.dataset[attr] === value));
   });
 }
 
-function addPhoto(id, name, image) {
-  const s = state();
-  const existing = s.photos.find((photo) => photo.id === id);
-  if (existing) existing.image = image;
-  else s.photos.push({ id, name, image });
-  const slot = s.panels.find((panel) => !panel.photoId) || s.panels[0];
-  if (slot && !slot.photoId) slot.photoId = id;
-}
-
-async function loadSamples() {
-  const loaded = await Promise.all(SAMPLES.map(async (name) => {
-    const image = await loadImage(`samples/${name}.jpg`);
-    return { id: name, name: `${name}.jpg`, image };
-  }));
-  const s = state();
-  s.photos = loaded;
-  const layout = layoutById(s.layoutId);
-  s.panels.forEach((panel, index) => {
-    const photo = loaded[index % loaded.length];
-    panel.photoId = photo.id;
-    panel.caption = CAPTIONS[index % CAPTIONS.length];
-    panel.timecode = TIMECODES[index % TIMECODES.length];
-    panel.rotate = layout.panels[index] ? layout.panels[index].rotate || 0 : 0;
-  });
-}
-
-function applyShot(params) {
-  const scene = SHOTS[params.get('shot')];
-  if (!scene) return;
-  const s = state();
-  s.layoutId = scene.layout;
-  s.gradeId = scene.grade;
-  s.size = { ...SIZES[scene.size] };
-  const picks = [0, 2, 4, 6].map((index) => s.photos[index]).filter(Boolean);
-  const layout = layoutById(scene.layout);
-  s.panels.forEach((panel, index) => {
-    const photo = picks[index % picks.length];
-    panel.photoId = photo ? photo.id : null;
-    panel.caption = CAPTIONS[index % CAPTIONS.length];
-    panel.timecode = TIMECODES[index % TIMECODES.length];
-    panel.rotate = layout.panels[index] ? layout.panels[index].rotate || 0 : 0;
-  });
-  document.body.classList.add('shot-frame');
+function syncControls() {
+  $('field-title').value = state.title;
+  $('field-subtitle').value = state.subtitle;
+  $('field-tagline').value = state.tagline;
+  $('field-issue').value = state.issue;
+  $('field-rating').value = state.rating;
+  $('title-scale').value = state.titleScale;
+  $('title-rotate').value = state.titleRotate;
+  $('title-align').value = state.titleAlign;
+  $('caption-align').value = state.captionAlign;
+  $('adjust-brightness').value = state.adjust.brightness;
+  $('adjust-contrast').value = state.adjust.contrast;
+  $('adjust-saturation').value = state.adjust.saturation;
+  $('adjust-temperature').value = state.adjust.temperature;
+  $('adjust-highlights').value = state.adjust.highlights;
+  $('adjust-shadows').value = state.adjust.shadows;
+  $('effect-grain').value = state.grain;
+  $('effect-vignette').value = state.vignette;
+  $('effect-bloom').value = state.bloom;
+  $('effect-leak').value = state.leak;
+  setPressed('#layout-list button', 'layout', state.layoutId);
+  setPressed('#size-row button', 'size', `${state.size.w}x${state.size.h}`);
+  setPressed('#grade-list button', 'grade', state.gradeId);
+  renderStrip();
 }
 
 function renderStrip() {
-  const strip = $('#photo-strip');
+  const strip = $('photo-strip');
   if (!strip) return;
-  strip.textContent = '';
-  state().photos.forEach((photo) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'thumb';
-    button.title = photo.name;
+  strip.replaceChildren();
+  photos.forEach((photo, index) => {
+    const card = document.createElement('figure');
+    card.className = 'thumb';
     const img = document.createElement('img');
-    img.alt = photo.name;
-    img.src = photo.image.src;
-    button.append(img);
+    img.src = photo.url;
+    img.alt = photo.id;
+    const use = document.createElement('button');
+    use.type = 'button';
+    use.textContent = `Panel ${selected + 1}`;
+    use.addEventListener('click', () => {
+      commit((next) => { next.panels[selected].photoId = photo.id; });
+    });
     const remove = document.createElement('button');
     remove.type = 'button';
-    remove.className = 'thumb-remove';
-    remove.textContent = '×';
-    remove.addEventListener('click', (event) => {
-      event.stopPropagation();
-      remember(() => {
-        state().photos = state().photos.filter((item) => item.id !== photo.id);
-        state().panels.forEach((panel) => {
-          if (panel.photoId === photo.id) panel.photoId = null;
-        });
-      });
-      renderStrip();
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => {
+      commit(() => { photos = photos.filter((item) => item !== photo); });
     });
-    button.append(remove);
-    button.addEventListener('click', () => {
-      remember(() => { state().panels[selected].photoId = photo.id; });
-    });
-    strip.append(button);
+    card.append(img, use, remove);
+    strip.append(card);
+    card.dataset.index = String(index);
   });
 }
 
-async function takeFiles(files) {
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+async function addFiles(files) {
   const accepted = [...files].filter((file) => /image\/(jpeg|png|webp)/.test(file.type));
   if (!accepted.length) return;
-  studio.checkpoint();
+  remember();
   for (const file of accepted) {
     const image = await createImageBitmap(file);
-    const id = `upload-${file.name}-${file.size}`;
-    addPhoto(id, file.name, image);
+    const url = URL.createObjectURL(file);
+    const id = `upload-${photos.length}-${file.name}`;
+    photos.push({ id, image, url });
+    const empty = state.panels.find((panel) => !photoById(panel.photoId));
+    (empty || state.panels[selected]).photoId = id;
   }
-  hideHint();
-  renderStrip();
-  await paint();
-  syncRails();
+  dirty = true;
+  $('hint').hidden = true;
+  paint();
+  syncControls();
+}
+
+async function loadSamples(names) {
+  const loaded = [];
+  for (const name of names) {
+    const image = await loadImage(`./samples/${name}.jpg`);
+    image.__name = name;
+    loaded.push({ id: name, image, url: `./samples/${name}.jpg` });
+  }
+  photos = loaded;
+}
+
+function applyShot(shot) {
+  const spec = SHOTS[shot];
+  if (!spec) return;
+  state.layoutId = spec.layoutId;
+  state.size = { ...spec.size };
+  state.gradeId = spec.gradeId;
+  spec.panels.forEach((pair, index) => {
+    if (!state.panels[index]) {
+      state.panels[index] = { photoId: '', zoom: 1, focusX: 0, focusY: 0, rotate: 0, timecode: '', caption: '' };
+    }
+    state.panels[index].photoId = spec.photos[index];
+    state.panels[index].timecode = pair[0];
+    state.panels[index].caption = pair[1];
+  });
+  document.body.dataset.shot = shot;
 }
 
 function canvasPoint(event) {
-  const canvas = $('#preview');
-  const box = canvas.getBoundingClientRect();
+  const canvas = $('preview');
+  const bounds = canvas.getBoundingClientRect();
   return {
-    x: (event.clientX - box.left) / box.width,
-    y: (event.clientY - box.top) / box.height,
+    x: ((event.clientX - bounds.left) / bounds.width) * canvas.width,
+    y: ((event.clientY - bounds.top) / bounds.height) * canvas.height,
   };
 }
 
-function panelAt(point) {
-  const layout = layoutById(state().layoutId);
-  const w = state().size.w;
-  const h = state().size.h;
-  for (let i = layout.panels.length - 1; i >= 0; i -= 1) {
-    const slot = layout.panels[i];
-    if (slot.kind === 'field' || slot.kind === 'bleed') continue;
-    const x = slot.x * w;
-    const y = slot.y * h;
-    if (point.x * w >= x && point.x * w <= x + slot.w * w && point.y * h >= y && point.y * h <= y + slot.h * h) {
-      return i;
-    }
-  }
-  return -1;
+function hitPanel(point) {
+  const layout = LAYOUTS.find((item) => item.id === state.layoutId);
+  if (!layout) return 0;
+  const frame = state.size;
+  let found = 0;
+  layout.panels.forEach((panel, index) => {
+    if (panel.kind === 'field') return;
+    const x = panel.x * frame.w;
+    const y = panel.y * frame.h;
+    const w = panel.w * frame.w;
+    const h = panel.h * frame.h;
+    if (point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h) found = panel.slot ?? index;
+  });
+  return found;
 }
 
-function bindStage() {
-  const stage = $('#stage');
-  const canvas = $('#preview');
-  stage.addEventListener('dragover', (event) => event.preventDefault());
-  stage.addEventListener('drop', (event) => {
-    event.preventDefault();
-    takeFiles(event.dataTransfer.files);
-  });
+function bindCanvas() {
+  const canvas = $('preview');
+  let drag = null;
   canvas.addEventListener('pointerdown', (event) => {
-    const point = canvasPoint(event);
-    const index = panelAt(point);
-    if (index < 0) return;
-    selected = index;
-    const panel = state().panels[selected];
-    drag = { id: event.pointerId, focusX: panel.focusX, focusY: panel.focusY, x: point.x, y: point.y };
+    selected = hitPanel(canvasPoint(event));
+    const panel = state.panels[selected];
+    if (!panel) return;
+    drag = { x: event.clientX, y: event.clientY, fx: panel.focusX, fy: panel.focusY };
     canvas.setPointerCapture(event.pointerId);
-    studio.checkpoint();
-    syncRails();
+    remember();
   });
   canvas.addEventListener('pointermove', (event) => {
-    if (!drag || event.pointerId !== drag.id) return;
-    const point = canvasPoint(event);
-    const panel = state().panels[selected];
-    panel.focusX = Math.min(1, Math.max(0, drag.focusX - (point.x - drag.x)));
-    panel.focusY = Math.min(1, Math.max(0, drag.focusY - (point.y - drag.y)));
+    if (!drag) return;
+    const panel = state.panels[selected];
+    panel.focusX = Math.max(-1, Math.min(1, drag.fx + (event.clientX - drag.x) / 280));
+    panel.focusY = Math.max(-1, Math.min(1, drag.fy + (event.clientY - drag.y) / 280));
     paint();
   });
   canvas.addEventListener('pointerup', () => { drag = null; });
+  let zoomArmed = true;
   canvas.addEventListener('wheel', (event) => {
-    if (panelAt(canvasPoint(event)) < 0) return;
     event.preventDefault();
-    const panel = state().panels[selected];
-    studio.checkpoint();
-    panel.zoom = Math.min(3, Math.max(1, (panel.zoom || 1) + (event.deltaY < 0 ? 0.1 : -0.1)));
+    const panel = state.panels[selected];
+    if (!panel) return;
+    if (zoomArmed) { remember(); zoomArmed = false; }
+    clearTimeout(canvas._zoomTimer);
+    canvas._zoomTimer = setTimeout(() => { zoomArmed = true; }, 400);
+    panel.zoom = Math.max(1, Math.min(3, panel.zoom + (event.deltaY < 0 ? 0.08 : -0.08)));
+    dirty = true;
     paint();
-    syncRails();
   }, { passive: false });
-  window.addEventListener('paste', (event) => {
-    const files = [...(event.clipboardData?.files || [])];
-    if (files.length) takeFiles(files);
+}
+
+function bindText(id, key) {
+  const node = $(id);
+  node.addEventListener('focus', () => { node.dataset.before = state[key]; });
+  node.addEventListener('change', () => {
+    const before = node.dataset.before;
+    const value = node.value;
+    state[key] = before;
+    commit((next) => { next[key] = value; });
+  });
+  node.addEventListener('input', (event) => {
+    state[key] = event.target.value;
+    dirty = true;
+    $('hint').hidden = true;
+    paint();
   });
 }
 
-function field(label, key, type, attrs) {
-  const wrap = document.createElement('label');
-  wrap.className = type === 'range' ? 'slider' : 'field';
-  wrap.append(document.createTextNode(label));
-  const input = document.createElement('input');
-  input.type = type;
-  input.dataset.field = key;
-  Object.entries(attrs).forEach(([name, value]) => input.setAttribute(name, value));
-  wrap.append(input);
-  return wrap;
-}
-
-function buildPanelControls() {
-  const section = document.createElement('section');
-  section.id = 'panel-controls';
-  section.className = 'rail-block';
-  const heading = document.createElement('h2');
-  heading.dataset.panelLabel = '1';
-  heading.textContent = 'Panel 1';
-  section.append(heading);
-  [['zoom', 'Zoom', '1', '3', '0.05'], ['focusX', 'Focus X', '0', '1', '0.01'],
-    ['focusY', 'Focus Y', '0', '1', '0.01'], ['rotate', 'Rotate', '-15', '15', '0.5']]
-    .forEach(([key, label, min, max, step]) => {
-      const wrap = field(`${label}`, key, 'range', { min, max, step });
-      wrap.querySelector('input').dataset.panel = key;
-      wrap.querySelector('input').removeAttribute('data-field');
-      section.append(wrap);
-    });
-  const reset = document.createElement('button');
-  reset.type = 'button';
-  reset.className = 'action action-alt';
-  reset.textContent = 'Reset frame';
-  reset.addEventListener('click', () => {
-    remember(() => {
-      Object.assign(state().panels[selected], { zoom: 1, focusX: 0.5, focusY: 0.5, rotate: 0 });
-    });
-    syncRails();
-  });
-  section.append(reset);
-  section.addEventListener('input', (event) => {
-    const key = event.target.dataset.panel;
-    if (!key) return;
-    remember(() => { state().panels[selected][key] = Number(event.target.value); });
-  });
-  $('#rail-right').prepend(section);
-}
-
-function buildLettering() {
-  const section = $('#section-lettering');
-  const text = section.querySelectorAll('input[type="text"]');
-  ['title', 'subtitle', 'tagline', 'issue', 'rating'].forEach((key, index) => {
-    text[index].dataset.field = key;
-  });
-  const ranges = section.querySelectorAll('input[type="range"]');
-  ['titleScale', 'titleRotate'].forEach((key, index) => { ranges[index].dataset.field = key; });
-  section.querySelectorAll('.chip').forEach((button, index) => {
-    button.dataset.align = ['left', 'center', 'right'][index];
-  });
-  section.addEventListener('input', (event) => {
-    const key = event.target.dataset.field;
-    if (!key) return;
-    const value = event.target.type === 'range' ? Number(event.target.value) : event.target.value;
-    remember(() => { state()[key] = value; });
-  });
-  section.addEventListener('click', (event) => {
-    const align = event.target.dataset.align;
-    if (!align) return;
-    remember(() => { state().titleAlign = align; });
-    syncRails();
+function bindRange(id, read) {
+  const node = $(id);
+  node.addEventListener('pointerdown', () => { if (!node.dataset.open) { remember(); node.dataset.open = '1'; } });
+  node.addEventListener('pointerup', () => { node.dataset.open = ''; });
+  node.addEventListener('input', (event) => {
+    read(state, Number(event.target.value));
+    dirty = true;
+    $('hint').hidden = true;
+    paint();
   });
 }
 
-function buildGrade() {
-  const section = $('#section-grade');
-  const sliders = section.querySelectorAll('input[type="range"]');
-  [...ADJUST.map(([key]) => key), ...EFFECTS.map(([key]) => key)].forEach((key, index) => {
-    if (ADJUST.some(([name]) => name === key)) sliders[index].dataset.adjust = key;
-    else sliders[index].dataset.effect = key;
-  });
-  section.addEventListener('input', (event) => {
-    const adjust = event.target.dataset.adjust;
-    const effect = event.target.dataset.effect;
-    if (!adjust && !effect) return;
-    remember(() => {
-      if (adjust) state().adjust[adjust] = Number(event.target.value);
-      else state()[effect] = Number(event.target.value);
-    });
-  });
-}
-
-function logExport(name) {
-  const list = $('#export-log');
-  if (!list) return;
-  const item = document.createElement('li');
-  item.textContent = name;
-  list.prepend(item);
-}
-
-function buildExport() {
-  const section = $('#section-export');
-  const [one, all] = section.querySelectorAll('.action');
-  one.id = 'export-png';
-  one.addEventListener('click', async () => {
-    one.disabled = true;
-    one.textContent = 'Rendering…';
-    const name = section.querySelector('input[type="text"]').value.trim() || fileName(state(), state().size);
-    const result = await exportCover(state(), state().size, { name });
-    logExport(`${result.name} · ${result.bytes} bytes`);
-    one.textContent = 'Export PNG';
-    one.disabled = false;
-  });
-  all.addEventListener('click', async () => {
-    all.disabled = true;
-    const results = await exportAll(state());
-    results.forEach((result) => logExport(result.name));
-    all.disabled = false;
-  });
-}
-
-function bindKeyboard() {
-  window.addEventListener('keydown', (event) => {
-    const typing = /^(INPUT|TEXTAREA)$/.test(event.target.tagName);
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+function bindKeys() {
+  document.addEventListener('keydown', (event) => {
+    const typing = /input|textarea|select/i.test(event.target.tagName);
+    const meta = event.metaKey || event.ctrlKey;
+    if (meta && event.key.toLowerCase() === 'z') {
       event.preventDefault();
       if (event.shiftKey) redo();
       else undo();
@@ -425,94 +365,183 @@ function bindKeyboard() {
     if (typing) return;
     if (event.key >= '1' && event.key <= '8') {
       const layout = LAYOUTS[Number(event.key) - 1];
-      if (layout) remember(() => { state().layoutId = layout.id; state().gradeId = layout.defaultGrade; });
-      syncRails();
+      commit((next) => { applyLayout(next, layout); });
     } else if (event.key.toLowerCase() === 'e') {
-      $('#export-png').click();
-    } else if (event.key === '+' || event.key === '=') {
-      stageZoom = Math.min(3, stageZoom + 0.25);
-      applyStageZoom();
-    } else if (event.key === '-' || event.key === '_') {
-      stageZoom = Math.max(0.5, stageZoom - 0.25);
-      applyStageZoom();
-    } else if (event.key === ' ') {
       event.preventDefault();
-      comparing = true;
-      state().compare = true;
+      runExport(state.size);
+    } else if (event.key === '+' || event.key === '=') {
+      stage.zoom = Math.min(2, stage.zoom + 0.1);
+      paint();
+    } else if (event.key === '-' || event.key === '_') {
+      stage.zoom = Math.max(0.4, stage.zoom - 0.1);
       paint();
     }
   });
-  window.addEventListener('keyup', (event) => {
-    if (event.key === ' ' && comparing) {
-      comparing = false;
-      state().compare = false;
+}
+
+function drawExport(ctx, next) {
+  next.photos = orderedPhotos().map((photo) => photo.image);
+  renderPreview(ctx.canvas, next);
+}
+
+function runExport(size, opts = {}) {
+  const log = $('export-log');
+  log.textContent = 'Rendering…';
+  const name = opts.filename || $('export-name').value;
+  return exportCover(state, size, name, {
+    renderCover: drawExport,
+    download: opts.download,
+    onProgress(info) { log.textContent = `${info.phase} ${info.filename}`; },
+  }).then((result) => {
+    if (opts.download === false) return result;
+    return result;
+  }).catch((error) => { log.textContent = error.message; throw error; });
+}
+
+function bindExport() {
+  document.querySelectorAll('[data-export]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const [w, h] = button.dataset.export.split('x').map(Number);
+      runExport({ w, h });
+    });
+  });
+  $('export-all').addEventListener('click', () => {
+    const log = $('export-log');
+    log.textContent = 'Rendering…';
+    exportAll(state, {
+      renderCover(ctx, next) {
+        next.photos = orderedPhotos().map((photo) => photo.image);
+        renderPreview(ctx.canvas, next);
+      },
+      onProgress(info) { log.textContent = `${info.index}/${info.total} ${info.filename}`; },
+    }).catch((error) => { log.textContent = error.message; });
+  });
+}
+
+function bindRails() {
+  document.querySelectorAll('#layout-list button').forEach((button) => {
+    button.addEventListener('click', () => {
+      const layout = LAYOUTS.find((item) => item.id === button.dataset.layout);
+      commit((next) => { applyLayout(next, layout); });
+    });
+  });
+  document.querySelectorAll('#size-row button').forEach((button) => {
+    button.addEventListener('click', () => {
+      const [w, h] = button.dataset.size.split('x').map(Number);
+      commit((next) => { next.size = { w, h }; });
+    });
+  });
+  document.querySelectorAll('#grade-list button').forEach((button) => {
+    button.addEventListener('click', () => {
+      commit((next) => { next.gradeId = button.dataset.grade; });
+    });
+  });
+  bindText('field-title', 'title');
+  bindText('field-subtitle', 'subtitle');
+  bindText('field-tagline', 'tagline');
+  bindText('field-issue', 'issue');
+  bindText('field-rating', 'rating');
+  bindRange('title-scale', (next, value) => { next.titleScale = value; });
+  bindRange('title-rotate', (next, value) => { next.titleRotate = value; });
+  $('title-align').addEventListener('change', (event) => {
+    commit((next) => { next.titleAlign = event.target.value; });
+  });
+  $('caption-align').addEventListener('change', (event) => {
+    commit((next) => { next.captionAlign = event.target.value; });
+  });
+  ['brightness', 'contrast', 'saturation', 'temperature', 'highlights', 'shadows'].forEach((key) => {
+    bindRange(`adjust-${key}`, (next, value) => { next.adjust[key] = value; });
+  });
+  ['grain', 'vignette', 'bloom', 'leak'].forEach((key) => {
+    bindRange(`effect-${key}`, (next, value) => { next[key] = value; });
+  });
+}
+
+function bindStage() {
+  $('zoom-out').addEventListener('click', () => { stage.zoom = Math.max(0.4, stage.zoom - 0.1); paint(); });
+  $('zoom-in').addEventListener('click', () => { stage.zoom = Math.min(2, stage.zoom + 0.1); paint(); });
+  $('undo').addEventListener('click', undo);
+  $('redo').addEventListener('click', redo);
+  const compare = $('compare');
+  const hold = (down) => {
+    compare.addEventListener(down ? 'pointerdown' : 'pointerup', () => {
+      state.compare = down;
+      paint();
+    });
+  };
+  hold(true);
+  hold(false);
+  compare.addEventListener('pointerleave', () => { state.compare = false; paint(); });
+  document.addEventListener('keydown', (event) => {
+    if (event.code === 'Space' && event.target === document.body) {
+      event.preventDefault();
+      state.compare = true;
       paint();
     }
   });
+  document.addEventListener('keyup', (event) => {
+    if (event.code === 'Space') { state.compare = false; paint(); }
+  });
 }
 
-function undo() {
-  studio.undo();
-  syncRails();
-  renderStrip();
-}
-
-function redo() {
-  studio.redo();
-  syncRails();
-  renderStrip();
-}
-
-function bindChrome() {
-  document.querySelectorAll('[data-layout]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const layout = layoutById(button.dataset.layout);
-      remember(() => { state().layoutId = layout.id; state().gradeId = layout.defaultGrade; });
-      syncRails();
-    });
+function bindIntake() {
+  $('photo-input').addEventListener('change', (event) => addFiles(event.target.files));
+  const stageEl = $('stage');
+  stageEl.addEventListener('dragover', (event) => event.preventDefault());
+  stageEl.addEventListener('drop', (event) => {
+    event.preventDefault();
+    addFiles(event.dataTransfer.files);
   });
-  document.querySelectorAll('[data-size]').forEach((button) => {
-    button.addEventListener('click', () => {
-      remember(() => { state().size = { ...SIZES[button.dataset.size] }; });
-      syncRails();
-    });
+  document.addEventListener('paste', (event) => {
+    const files = [...(event.clipboardData?.files || [])];
+    if (files.length) addFiles(files);
   });
-  document.querySelectorAll('[data-grade]').forEach((button) => {
-    button.addEventListener('click', () => {
-      remember(() => { state().gradeId = button.dataset.grade; });
-      syncRails();
-    });
-  });
-  $('#undo').addEventListener('click', undo);
-  $('#redo').addEventListener('click', redo);
-  const compare = $('#compare');
-  compare.addEventListener('pointerdown', () => { state().compare = true; paint(); compare.setAttribute('aria-pressed', 'true'); });
-  compare.addEventListener('pointerup', () => { state().compare = false; paint(); compare.setAttribute('aria-pressed', 'false'); });
-  $('#zoom-in').addEventListener('click', () => { stageZoom = Math.min(3, stageZoom + 0.25); applyStageZoom(); });
-  $('#zoom-out').addEventListener('click', () => { stageZoom = Math.max(0.5, stageZoom - 0.25); applyStageZoom(); });
-  $('#photo-input').addEventListener('change', (event) => takeFiles(event.target.files));
 }
 
 export async function bootStudio() {
-  const deadline = Date.now() + 8000;
-  while (!window.__studio && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
-  studio = window.__studio;
-  await studio.ready;
-  buildPanelControls();
-  buildLettering();
-  buildGrade();
-  buildExport();
-  bindChrome();
+  const shot = new URLSearchParams(location.search).get('shot');
+  state = freshState();
+  if (shot && SHOTS[shot]) applyShot(shot);
+  const names = shot && SHOTS[shot] ? SHOTS[shot].photos : SAMPLES.slice(0, 4);
+  await loadSamples(names);
+  if (!(shot && SHOTS[shot])) {
+    state.panels.forEach((panel, index) => { panel.photoId = names[index % names.length]; });
+  }
+  bindCanvas();
+  bindRails();
   bindStage();
-  bindKeyboard();
-  await loadSamples();
-  applyShot(new URLSearchParams(location.search));
-  await paint();
-  syncRails();
-  renderStrip();
-  return studio.ready;
+  bindIntake();
+  bindExport();
+  bindKeys();
+  syncControls();
+  paint();
+  window.__shotReady = true;
+  window.__metrics = () => lastMetrics();
+  const ready = Promise.resolve(state);
+  window.__studio = {
+    ready,
+    get state() { return state; },
+    set state(next) { state = next; },
+    get photos() { return photos; },
+    checkpoint() { snapshotNow(); },
+    async render() { paint(); return state; },
+    async setLayout(id) {
+      const layout = LAYOUTS.find((item) => item.id === id);
+      if (!layout) throw new Error(`unknown layout ${id}`);
+      commit((next) => { applyLayout(next, layout); });
+      return state;
+    },
+    async setGrade(id) {
+      commit((next) => { next.gradeId = id; });
+      return state;
+    },
+    async undo() { undo(); return state; },
+    async redo() { redo(); return state; },
+    async exportSize(w, h, opts = {}) {
+      return runExport({ w, h }, opts);
+    },
+  };
+  return state;
 }
 
-bootStudio();
-
-void GRADES;
+if (!painting) bootStudio();

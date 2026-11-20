@@ -1,16 +1,14 @@
-// Hands the Vice Diaries studio in. Copies app/ and screenshots/ to the output
-// directory, then writes dossier.json from the vendored make.fun builder using
-// the scorer's own caps. Refuses to write inside this repository, and refuses a
-// screenshots directory that does not hold exactly 3 or 4 images.
+// Vice Diaries hand-in. Copies the static studio and its screenshots to the
+// grader output dir, then writes the dossier the scorer compares byte for byte.
+// Refuses to write inside this repository, and refuses a screenshots folder that
+// does not hold exactly 3 or 4 images.
 
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-app.ts';
 
-const repo = fileURLToPath(new URL('.', import.meta.url));
-
-const CAPS = {
+const GATE = {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   app_max_files: 993,
@@ -18,56 +16,51 @@ const CAPS = {
   app_path_max_bytes: 1000,
 };
 
-const IMAGE = /\.(png|jpe?g)$/i;
-
-function fail(message: string): never {
-  console.error(message);
-  process.exit(1);
-}
-
-function insideRepo(dir: string): boolean {
-  const rel = relative(repo, dir);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-}
-
-function imageCount(dir: string): number {
-  const walk = (at: string): number => {
-    let n = 0;
-    for (const name of readdirSync(at)) {
-      if (name.startsWith('.')) continue;
-      const full = join(at, name);
-      const st = statSync(full);
-      if (st.isDirectory()) n += walk(full);
-      else if (IMAGE.test(name)) n += 1;
-    }
-    return n;
-  };
-  return walk(dir);
-}
-
+const IMAGE = /\.(?:png|jpe?g)$/i;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const dryRun = process.argv.includes('--dry-run');
-const out = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
 
-if (insideRepo(out)) fail(`refusing to write inside the repository: ${out}`);
-
-const shots = join(repo, 'screenshots');
-const shotCount = existsSync(shots) ? imageCount(shots) : 0;
-if (shotCount !== 3 && shotCount !== 4) {
-  fail(`screenshots/ holds ${shotCount} images; the hand-in needs 3 or 4`);
+function outputDir() {
+  const raw = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+  const out = resolve(raw);
+  const rel = relative(resolve(here), out);
+  const inside = rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
+  if (inside) throw new Error(`refusing to write inside the repository: ${out}`);
+  return out;
 }
 
-if (dryRun) {
-  console.log(`dry-run: would copy app/ and ${shotCount} screenshots to ${out}`);
-  process.exit(0);
+function screenshotNames() {
+  const dir = join(here, 'screenshots');
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
+  return readdirSync(dir).filter((name) => IMAGE.test(name) && statSync(join(dir, name)).isFile()).sort();
 }
 
-mkdirSync(out, { recursive: true });
-cpSync(join(repo, 'app'), join(out, 'app'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-cpSync(shots, join(out, 'screenshots'), { recursive: true });
+function copyTree(out: string) {
+  mkdirSync(out, { recursive: true });
+  cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
+  const shots = join(here, 'screenshots');
+  if (existsSync(shots)) cpSync(shots, join(out, 'screenshots'), { recursive: true });
+  else mkdirSync(join(out, 'screenshots'), { recursive: true });
+}
 
-const dossier = buildDossier(out, CAPS);
-writeFileSync(join(out, 'dossier.json'), dossier);
+function main() {
+  const names = screenshotNames();
+  if (names.length < 3 || names.length > 4) {
+    throw new Error(`screenshots/ needs 3 or 4 images, found ${names.length}`);
+  }
+  const out = outputDir();
+  if (dryRun) {
+    console.log(`dry-run ${names.length} screenshots -> ${out}`);
+    return;
+  }
+  copyTree(out);
+  const dossier = buildDossier(out, GATE);
+  writeFileSync(join(out, 'dossier.json'), dossier);
+  const doc = JSON.parse(Buffer.from(dossier).toString('utf8'));
+  const lines = String(doc.text).split('\n');
+  const totals = lines.find((line) => line.startsWith('Totals:')) ?? '';
+  const sources = lines.find((line) => line.startsWith('Source files:')) ?? '';
+  console.log(`${sources}; ${totals}; dossier ${dossier.length} bytes; screenshots ${doc.images.length}`);
+}
 
-const appFiles = readdirSync(join(out, 'app'), { recursive: true }).length;
-console.log(`handed in ${appFiles} app entries, ${shotCount} screenshots, dossier ${dossier.length} bytes -> ${out}${sep === '/' ? '' : dirname(out)}`);
+main();
